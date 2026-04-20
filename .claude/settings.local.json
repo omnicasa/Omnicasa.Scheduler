@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcrun -find mdimport)",
+      "Bash(xcrun *)",
+      "Bash(sudo xcodebuild *)",
+      "Bash(xcodebuild -runFirstLaunch)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild *)"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:sched="clr-namespace:Omnicasa.Schedule;assembly=Omnicasa.Schedule"
+             x:Class="Omnicasa.Schedule.Sample.DayPage"
+             Title="Day">
+
+    <Grid RowDefinitions="Auto,*" Padding="0">
+        <Label x:Name="HeaderLabel"
+               Grid.Row="0"
+               FontSize="22"
+               FontAttributes="Bold"
+               Padding="16,8"
+               HorizontalOptions="Start" />
+
+        <sched:DayAgendaView x:Name="Day"
+                             Grid.Row="1"
+                             AppointmentTapped="OnAppointmentTapped"
+                             AppointmentChanged="OnAppointmentChanged" />
+    </Grid>
+
+</ContentPage>

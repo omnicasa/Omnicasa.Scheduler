@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet sln *)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet package *)"
+    ],
+    "additionalDirectories": [
+      "/Users/hoangq/Projects/Omnicasa.Schedule/src"
+    ]
+  }
+}

@@ -68,6 +68,15 @@ public class DayAgendaView : ContentView
             DayOfWeek.Monday,
             propertyChanged: (b, _, _) => ((DayAgendaView)b).OnFirstDayOfWeekChanged());
 
+    /// <summary>Bindable property for <see cref="Persons"/>.</summary>
+    public static readonly BindableProperty PersonsProperty =
+        BindableProperty.Create(
+            nameof(Persons),
+            typeof(IList<Person>),
+            typeof(DayAgendaView),
+            null,
+            propertyChanged: (b, _, _) => ((DayAgendaView)b).OnPersonsChangedInternal());
+
     private readonly ScheduleTheme fallbackTheme = new ScheduleTheme();
 
     private readonly CarouselView carousel;
@@ -117,6 +126,9 @@ public class DayAgendaView : ContentView
 
     /// <summary>Internal: fired when <see cref="DaysPerPage"/> changes, for child pages.</summary>
     internal event Action? DaysPerPageChanged;
+
+    /// <summary>Internal: fired when <see cref="Persons"/> changes, for child pages.</summary>
+    internal event Action? PersonsChanged;
 
     /// <summary>Gets the shared vertical scroll position across day pages, or NaN if uninitialized.</summary>
     internal double SharedScrollY { get; private set; } = double.NaN;
@@ -168,6 +180,13 @@ public class DayAgendaView : ContentView
     {
         get => (DayOfWeek)GetValue(FirstDayOfWeekProperty);
         set => SetValue(FirstDayOfWeekProperty, value);
+    }
+
+    /// <summary>Gets or sets the list of persons; when non-empty, each page shows a single day with one column per person.</summary>
+    public IList<Person>? Persons
+    {
+        get => (IList<Person>?)GetValue(PersonsProperty);
+        set => SetValue(PersonsProperty, value);
     }
 
     /// <summary>Sets the shared vertical scroll position and notifies pages.</summary>
@@ -273,6 +292,12 @@ public class DayAgendaView : ContentView
         {
             BuildDates();
         }
+    }
+
+    private void OnPersonsChangedInternal()
+    {
+        PersonsChanged?.Invoke();
+        BuildDates();
     }
 
     private void RaiseHourHeightChanged() => HourHeightChanged?.Invoke();

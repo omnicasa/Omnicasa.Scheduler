@@ -1,14 +1,15 @@
-﻿using Microsoft.Maui.Controls;
+﻿using System.Globalization;
+using Microsoft.Maui.Controls;
 using Microsoft.Maui.Controls.Shapes;
 using Microsoft.Maui.Graphics;
 using Microsoft.Maui.Layouts;
 
 namespace Omnicasa.Schedule;
 
-/// <summary>A one-or-more day page hosted inside <see cref="DayAgendaView"/>'s carousel.</summary>
+/// <summary>A one-or-more day (or one-day, N-person) page hosted inside <see cref="DayAgendaView"/>'s carousel.</summary>
 internal class DayAgendaPage : ContentView
 {
-    private const float MultiDayHeaderHeight = 36f;
+    private const float MultiColumnHeaderHeight = 48f;
 
     private readonly DayAgendaView host;
 
@@ -40,6 +41,8 @@ internal class DayAgendaPage : ContentView
 
     private int daysInPage = 1;
 
+    private int expectedColumnCount = 1;
+
     private double pinchBase = 60;
 
     private double pinchScale = 1.0;
@@ -57,15 +60,14 @@ internal class DayAgendaPage : ContentView
         this.host = host;
 
         drawable.Theme = host.Theme;
-        drawable.HeaderHeight = HeaderHeightFor(host.DaysPerPage);
-        drawable.Scale = new TimeScale((float)host.HourHeight, drawable.HeaderHeight);
 
         canvas = new GraphicsView
         {
             Drawable = drawable,
             BackgroundColor = Colors.Transparent,
-            HeightRequest = drawable.Scale.TotalHeight,
         };
+
+        SyncConfigFromHost();
 
         var tap = new TapGestureRecognizer();
         tap.Tapped += OnCanvasTapped;
@@ -101,7 +103,8 @@ internal class DayAgendaPage : ContentView
         host.ThemeChanged += OnThemeChanged;
         host.SourceChanged += OnSourceChanged;
         host.SharedScrollYChanged += OnSharedScrollYChanged;
-        host.DaysPerPageChanged += OnDaysPerPageChanged;
+        host.DaysPerPageChanged += OnConfigChanged;
+        host.PersonsChanged += OnConfigChanged;
         BindingContextChanged += OnBindingContextChanged;
         Loaded += (_, _) =>
         {
@@ -119,7 +122,8 @@ internal class DayAgendaPage : ContentView
             host.ThemeChanged -= OnThemeChanged;
             host.SourceChanged -= OnSourceChanged;
             host.SharedScrollYChanged -= OnSharedScrollYChanged;
-            host.DaysPerPageChanged -= OnDaysPerPageChanged;
+            host.DaysPerPageChanged -= OnConfigChanged;
+            host.PersonsChanged -= OnConfigChanged;
             BindingContextChanged -= OnBindingContextChanged;
         };
     }
@@ -130,8 +134,29 @@ internal class DayAgendaPage : ContentView
         Resize,
     }
 
-    private static float HeaderHeightFor(int daysPerPage)
-        => daysPerPage > 1 ? MultiDayHeaderHeight : 0f;
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "?";
+        }
+
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+        {
+            return string.Concat(
+                char.ToUpperInvariant(parts[0][0]),
+                char.ToUpperInvariant(parts[^1][0]));
+        }
+
+        var single = parts[0];
+        if (single.Length >= 2)
+        {
+            return single.Substring(0, 2).ToUpperInvariant();
+        }
+
+        return single.ToUpperInvariant();
+    }
 
     private static DateTime ClampToDay(DateTime t, DateTime day, TimeSpan duration)
     {
@@ -169,7 +194,7 @@ internal class DayAgendaPage : ContentView
             },
         };
         var pan = new PanGestureRecognizer();
-        pan.PanUpdated += (s, e) => OnHandlePan(kind, e);
+        pan.PanUpdated += (_, e) => OnHandlePan(kind, e);
         b.GestureRecognizers.Add(pan);
         return b;
     }
@@ -185,7 +210,7 @@ internal class DayAgendaPage : ContentView
         }
     }
 
-    private void OnDaysPerPageChanged()
+    private void OnConfigChanged()
     {
         SyncConfigFromHost();
         ClearSelection();
@@ -194,8 +219,11 @@ internal class DayAgendaPage : ContentView
 
     private void SyncConfigFromHost()
     {
+        bool personsMode = host.Persons is not null && host.Persons.Count > 0;
         daysInPage = Math.Max(1, host.DaysPerPage);
-        var header = HeaderHeightFor(daysInPage);
+        int personCount = personsMode ? host.Persons!.Count : 1;
+        expectedColumnCount = daysInPage * personCount;
+        var header = personsMode || daysInPage > 1 ? MultiColumnHeaderHeight : 0f;
         drawable.HeaderHeight = header;
         drawable.Scale = new TimeScale((float)host.HourHeight, header);
         canvas.HeightRequest = drawable.Scale.TotalHeight;
@@ -226,63 +254,89 @@ internal class DayAgendaPage : ContentView
         var ct = loadCts.Token;
         if (anchorDay is null)
         {
-            drawable.Days = new[] { DateOnly.FromDateTime(DateTime.Today) };
-            drawable.ColumnsByDay = new IReadOnlyList<LaidOutAppointment>[] { Array.Empty<LaidOutAppointment>() };
-            drawable.AllDayByDay = new IReadOnlyList<Appointment>[] { Array.Empty<Appointment>() };
+            drawable.Columns = Array.Empty<AgendaColumn>();
             canvas.Invalidate();
             return;
         }
 
-        var n = daysInPage;
+        bool personsMode = host.Persons is not null && host.Persons.Count > 0;
+        int days = daysInPage;
         var from = anchorDay.Value;
-        var days = new DateOnly[n];
-        for (int i = 0; i < n; i++)
-        {
-            days[i] = DateOnly.FromDateTime(from.AddDays(i));
-        }
+        var rangeEnd = from.AddDays(days).AddTicks(-1);
 
         if (host.AppointmentSource is null)
         {
-            drawable.Days = days;
-            drawable.ColumnsByDay = Enumerable.Range(0, n)
-                .Select(_ => (IReadOnlyList<LaidOutAppointment>)Array.Empty<LaidOutAppointment>())
-                .ToArray();
-            drawable.AllDayByDay = Enumerable.Range(0, n)
-                .Select(_ => (IReadOnlyList<Appointment>)Array.Empty<Appointment>())
-                .ToArray();
+            drawable.Columns = BuildColumns(personsMode, from, days, Array.Empty<Appointment>());
             canvas.Invalidate();
             return;
         }
 
-        var to = from.AddDays(n).AddTicks(-1);
         try
         {
-            var list = await host.AppointmentSource.GetAsync(from, to, ct);
+            var list = await host.AppointmentSource.GetAsync(from, rangeEnd, ct);
             if (ct.IsCancellationRequested)
             {
                 return;
             }
 
-            var columns = new IReadOnlyList<LaidOutAppointment>[n];
-            var allDay = new IReadOnlyList<Appointment>[n];
-            for (int i = 0; i < n; i++)
-            {
-                var dayStart = from.AddDays(i);
-                var dayEnd = dayStart.AddDays(1);
-                var forDay = list.Where(a => a.Start < dayEnd && a.End > dayStart).ToList();
-                columns[i] = EventLayoutEngine.Layout(forDay.Where(a => !a.IsAllDay)).ToList();
-                allDay[i] = forDay.Where(a => a.IsAllDay).ToList();
-            }
-
-            drawable.Days = days;
-            drawable.ColumnsByDay = columns;
-            drawable.AllDayByDay = allDay;
+            drawable.Columns = BuildColumns(personsMode, from, days, list);
             drawable.Now = DateTime.Now;
             canvas.Invalidate();
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    private AgendaColumn[] BuildColumns(bool personsMode, DateTime from, int days, IReadOnlyList<Appointment> list)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var persons = personsMode ? host.Persons! : null;
+        int personCount = persons?.Count ?? 1;
+        var result = new AgendaColumn[days * personCount];
+
+        for (int d = 0; d < days; d++)
+        {
+            var dayStart = from.AddDays(d);
+            var dayEnd = dayStart.AddDays(1);
+            var dayOnly = DateOnly.FromDateTime(dayStart);
+            var dayShort = dayOnly.DayOfWeek.ToString().Substring(0, 3).ToUpperInvariant();
+            var dayNum = dayOnly.Day.ToString(CultureInfo.InvariantCulture);
+            var isToday = dayOnly == today;
+            var forDay = list.Where(a => a.Start < dayEnd && a.End > dayStart && !a.IsAllDay).ToList();
+
+            if (personsMode)
+            {
+                for (int p = 0; p < personCount; p++)
+                {
+                    var person = persons![p];
+                    var forPerson = forDay.Where(a => string.Equals(a.PersonId, person.Id, StringComparison.Ordinal)).ToList();
+                    result[(d * personCount) + p] = new AgendaColumn
+                    {
+                        DayStart = dayStart,
+                        HeaderPrimary = $"{dayShort} {dayNum}",
+                        HeaderSecondary = Initials(person.Name),
+                        Accent = person.Color,
+                        IsToday = isToday,
+                        Events = EventLayoutEngine.Layout(forPerson).ToList(),
+                    };
+                }
+            }
+            else
+            {
+                result[d] = new AgendaColumn
+                {
+                    DayStart = dayStart,
+                    HeaderPrimary = dayShort,
+                    HeaderSecondary = days > 1 ? dayNum : null,
+                    Accent = null,
+                    IsToday = isToday,
+                    Events = EventLayoutEngine.Layout(forDay).ToList(),
+                };
+            }
+        }
+
+        return result;
     }
 
     private void InitialScroll()
@@ -300,7 +354,7 @@ internal class DayAgendaPage : ContentView
     private void OnLayoutSettled(object? sender, EventArgs e)
     {
         TryApplySharedScroll();
-        if (anchorDay is not null && drawable.ColumnsByDay.Count != daysInPage)
+        if (anchorDay is not null && drawable.Columns.Count != expectedColumnCount)
         {
             _ = ReloadAsync();
         }

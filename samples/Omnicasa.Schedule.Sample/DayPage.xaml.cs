@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using Microsoft.Maui.Graphics;
 using Omnicasa.Schedule;
 
 namespace Omnicasa.Schedule.Sample;
@@ -25,6 +26,13 @@ public partial class DayPage : ContentPage
         ModePicker.SelectedIndex = DaysPerPageToIndex(Day.DaysPerPage);
     }
 
+    private static readonly IList<Person> DemoPersons = new List<Person>
+    {
+        new Person { Id = "p1", Name = "Alice Murphy", Color = Color.FromArgb("#007AFF") },
+        new Person { Id = "p2", Name = "Bob Reyes", Color = Color.FromArgb("#34C759") },
+        new Person { Id = "p3", Name = "Charlie Mendes", Color = Color.FromArgb("#FF9500") },
+    };
+
     private static int DaysPerPageToIndex(int daysPerPage) => daysPerPage switch
     {
         3 => 1,
@@ -44,6 +52,11 @@ public partial class DayPage : ContentPage
     private void OnModeChanged(object? sender, EventArgs e)
     {
         Day.DaysPerPage = IndexToDaysPerPage(ModePicker.SelectedIndex);
+    }
+
+    private void OnPersonsToggled(object? sender, ToggledEventArgs e)
+    {
+        Day.Persons = e.Value ? DemoPersons : null;
     }
 
     /// <inheritdoc />

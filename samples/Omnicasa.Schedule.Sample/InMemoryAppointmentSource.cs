@@ -43,25 +43,30 @@ public sealed class InMemoryAppointmentSource : IAppointmentSource
 
         int[] minuteChoices = new[] { 0, 15, 30, 45 };
         int[] durationChoices = new[] { 30, 45, 60, 90, 120 };
+        string[] personIds = new[] { "p1", "p2", "p3" };
         var today = DateTime.Today;
         for (int d = -90; d <= 180; d++)
         {
             var day = today.AddDays(d);
-            int count = rng.Next(0, 5);
-            for (int i = 0; i < count; i++)
+            foreach (var pid in personIds)
             {
-                int startHour = rng.Next(7, 19);
-                int startMinute = minuteChoices[rng.Next(minuteChoices.Length)];
-                int durMinutes = durationChoices[rng.Next(durationChoices.Length)];
-                var start = day.AddHours(startHour).AddMinutes(startMinute);
-                items.Add(new Appointment
+                int perPerson = rng.Next(1, 4);
+                for (int i = 0; i < perPerson; i++)
                 {
-                    Id = Guid.NewGuid().ToString("N"),
-                    Title = titles[rng.Next(titles.Length)],
-                    Start = start,
-                    End = start.AddMinutes(durMinutes),
-                    Color = palette[rng.Next(palette.Length)],
-                });
+                    int startHour = rng.Next(7, 19);
+                    int startMinute = minuteChoices[rng.Next(minuteChoices.Length)];
+                    int durMinutes = durationChoices[rng.Next(durationChoices.Length)];
+                    var start = day.AddHours(startHour).AddMinutes(startMinute);
+                    items.Add(new Appointment
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        Title = titles[rng.Next(titles.Length)],
+                        Start = start,
+                        End = start.AddMinutes(durMinutes),
+                        Color = palette[rng.Next(palette.Length)],
+                        PersonId = pid,
+                    });
+                }
             }
         }
     }

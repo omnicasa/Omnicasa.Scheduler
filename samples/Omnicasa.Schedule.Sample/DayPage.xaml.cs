@@ -22,6 +22,28 @@ public partial class DayPage : ContentPage
                 UpdateHeader();
             }
         };
+        ModePicker.SelectedIndex = DaysPerPageToIndex(Day.DaysPerPage);
+    }
+
+    private static int DaysPerPageToIndex(int daysPerPage) => daysPerPage switch
+    {
+        3 => 1,
+        5 => 2,
+        7 => 3,
+        _ => 0,
+    };
+
+    private static int IndexToDaysPerPage(int index) => index switch
+    {
+        1 => 3,
+        2 => 5,
+        3 => 7,
+        _ => 1,
+    };
+
+    private void OnModeChanged(object? sender, EventArgs e)
+    {
+        Day.DaysPerPage = IndexToDaysPerPage(ModePicker.SelectedIndex);
     }
 
     /// <inheritdoc />

@@ -4,7 +4,7 @@ using Microsoft.Maui.Graphics;
 namespace Omnicasa.Schedule;
 
 /// <summary>
-/// Draws a day-view timeline with hour rail, event blocks, and the current-time indicator.
+/// Draws a day- or multi-day timeline with hour rail, event blocks, and the current-time indicator.
 /// </summary>
 public sealed class DayAgendaDrawable : IDrawable
 {
@@ -12,8 +12,8 @@ public sealed class DayAgendaDrawable : IDrawable
 
     private readonly List<(Appointment Item, RectF Handle)> resizeHandles = new List<(Appointment, RectF)>();
 
-    /// <summary>Gets or sets the day being rendered.</summary>
-    public DateOnly Day { get; set; } = DateOnly.FromDateTime(DateTime.Today);
+    /// <summary>Gets or sets the days rendered as columns, left-to-right.</summary>
+    public IReadOnlyList<DateOnly> Days { get; set; } = new[] { DateOnly.FromDateTime(DateTime.Today) };
 
     /// <summary>Gets or sets the color theme.</summary>
     public ScheduleTheme Theme { get; set; } = new ScheduleTheme();
@@ -21,19 +21,21 @@ public sealed class DayAgendaDrawable : IDrawable
     /// <summary>Gets or sets the vertical scale mapping times to Y coordinates.</summary>
     public TimeScale Scale { get; set; } = new TimeScale(60);
 
-    /// <summary>Gets or sets the laid-out appointments to render.</summary>
-    public IReadOnlyList<LaidOutAppointment> Appointments { get; set; } = Array.Empty<LaidOutAppointment>();
+    /// <summary>Gets or sets per-day laid-out appointments; outer index matches <see cref="Days"/>.</summary>
+    public IReadOnlyList<IReadOnlyList<LaidOutAppointment>> ColumnsByDay { get; set; }
+        = Array.Empty<IReadOnlyList<LaidOutAppointment>>();
 
-    /// <summary>Gets or sets the all-day appointments (drawn in the banner area).</summary>
-    public IReadOnlyList<Appointment> AllDay { get; set; } = Array.Empty<Appointment>();
+    /// <summary>Gets or sets per-day all-day appointments; outer index matches <see cref="Days"/>.</summary>
+    public IReadOnlyList<IReadOnlyList<Appointment>> AllDayByDay { get; set; }
+        = Array.Empty<IReadOnlyList<Appointment>>();
 
     /// <summary>Gets or sets the width of the time rail on the left, in logical pixels.</summary>
     public float TimeRailWidth { get; set; } = 56;
 
-    /// <summary>Gets or sets the height of the all-day banner, in logical pixels.</summary>
-    public float AllDayBannerHeight { get; set; }
+    /// <summary>Gets or sets the header height (column day labels). Zero hides the header.</summary>
+    public float HeaderHeight { get; set; }
 
-    /// <summary>Gets or sets the current time to highlight (only drawn when the day matches <see cref="Day"/>).</summary>
+    /// <summary>Gets or sets the current time to highlight.</summary>
     public DateTime? Now { get; set; }
 
     /// <summary>Gets or sets the appointment being dragged, drawn as a translucent ghost.</summary>
@@ -59,17 +61,92 @@ public sealed class DayAgendaDrawable : IDrawable
 
         float w = dirtyRect.Width;
         float h = dirtyRect.Height;
+        int n = Math.Max(1, Days.Count);
 
         canvas.FillColor = Theme.Background;
         canvas.FillRectangle(0, 0, w, h);
 
         float contentX = TimeRailWidth;
         float contentW = w - TimeRailWidth;
+        float colW = contentW / n;
+        float fontScale = Scale.HourHeight / 60f;
+
+        DrawColumnHeaders(canvas, contentX, colW, n, fontScale);
+        DrawHourGridAndLabels(canvas, w, contentX, fontScale);
+
+        for (int i = 0; i < n; i++)
+        {
+            float x0 = contentX + (i * colW);
+            DrawColumnEvents(canvas, i, x0, colW);
+        }
+
+        DrawColumnSeparators(canvas, contentX, colW, n, h);
+        DrawTodayMarker(canvas, contentX, colW, n);
+        DrawGhost(canvas, contentX, colW, n);
+    }
+
+    private static string FormatTime(DateTime t)
+    {
+        return t.Minute == 0
+            ? t.ToString("h tt", CultureInfo.CurrentCulture).ToLowerInvariant()
+            : t.ToString("h:mm tt", CultureInfo.CurrentCulture).ToLowerInvariant();
+    }
+
+    private void DrawColumnHeaders(ICanvas canvas, float contentX, float colW, int n, float fontScale)
+    {
+        if (HeaderHeight <= 0)
+        {
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        float dowSize = 11 * fontScale;
+        float daySize = 18 * fontScale;
+        for (int i = 0; i < n; i++)
+        {
+            float x0 = contentX + (i * colW);
+            var day = Days[i];
+            bool isToday = day == today;
+
+            if (isToday)
+            {
+                canvas.FillColor = new Color(Theme.Today.Red, Theme.Today.Green, Theme.Today.Blue, 0.1f);
+                canvas.FillRectangle(x0, 0, colW, HeaderHeight);
+            }
+
+            canvas.FontColor = isToday ? Theme.Today : Theme.Muted;
+            canvas.FontSize = dowSize;
+            canvas.Font = Microsoft.Maui.Graphics.Font.Default;
+            var dow = day.DayOfWeek.ToString().Substring(0, 3).ToUpperInvariant();
+            canvas.DrawString(dow, x0, 4, colW, dowSize + 2, HorizontalAlignment.Center, VerticalAlignment.Top);
+
+            canvas.FontColor = isToday ? Theme.Today : Theme.Foreground;
+            canvas.FontSize = daySize;
+            canvas.Font = Microsoft.Maui.Graphics.Font.DefaultBold;
+            canvas.DrawString(
+                day.Day.ToString(CultureInfo.InvariantCulture),
+                x0,
+                4 + dowSize + 2,
+                colW,
+                daySize + 2,
+                HorizontalAlignment.Center,
+                VerticalAlignment.Top);
+        }
+
+        canvas.StrokeColor = Theme.GridLine;
+        canvas.StrokeSize = 0.5f;
+        canvas.DrawLine(0, HeaderHeight, contentX + (colW * n), HeaderHeight);
+    }
+
+    private void DrawHourGridAndLabels(ICanvas canvas, float w, float contentX, float fontScale)
+    {
+        float hourLabelSize = 11 * fontScale;
+        float hourLabelBoxH = 16 * fontScale;
 
         canvas.StrokeColor = Theme.GridLine;
         canvas.StrokeSize = 0.5f;
         canvas.FontColor = Theme.Muted;
-        canvas.FontSize = 11;
+        canvas.FontSize = hourLabelSize;
         canvas.Font = Microsoft.Maui.Graphics.Font.Default;
 
         for (int hr = 0; hr <= 24; hr++)
@@ -96,21 +173,108 @@ public sealed class DayAgendaDrawable : IDrawable
                     label = $"{hr - 12} PM";
                 }
 
-                canvas.DrawString(label, 4, y - 8, TimeRailWidth - 8, 16, HorizontalAlignment.Right, VerticalAlignment.Top);
+                canvas.DrawString(
+                    label,
+                    4,
+                    y - (hourLabelBoxH / 2f),
+                    TimeRailWidth - 8,
+                    hourLabelBoxH,
+                    HorizontalAlignment.Right,
+                    VerticalAlignment.Top);
+            }
+        }
+    }
+
+    private void DrawColumnEvents(ICanvas canvas, int dayIndex, float x0, float colW)
+    {
+        if (dayIndex >= ColumnsByDay.Count)
+        {
+            return;
+        }
+
+        var day = Days[dayIndex];
+        var dayStart = day.ToDateTime(TimeOnly.MinValue);
+        var dayEnd = dayStart.AddDays(1);
+
+        foreach (var laid in ColumnsByDay[dayIndex])
+        {
+            var a = laid.Appointment;
+            DrawBlock(canvas, a, a.Start, a.End, laid.Column, laid.ColumnsInGroup, x0, colW, dayStart, dayEnd, isGhost: false);
+        }
+    }
+
+    private void DrawColumnSeparators(ICanvas canvas, float contentX, float colW, int n, float h)
+    {
+        if (n <= 1)
+        {
+            return;
+        }
+
+        canvas.StrokeColor = Theme.GridLine;
+        canvas.StrokeSize = 0.5f;
+        for (int i = 1; i < n; i++)
+        {
+            float x = contentX + (i * colW);
+            canvas.DrawLine(x, HeaderHeight, x, h);
+        }
+    }
+
+    private void DrawTodayMarker(ICanvas canvas, float contentX, float colW, int n)
+    {
+        if (Now is not { } now)
+        {
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(now);
+        int col = -1;
+        for (int i = 0; i < n; i++)
+        {
+            if (Days[i] == today)
+            {
+                col = i;
+                break;
             }
         }
 
-        foreach (var laid in Appointments)
+        if (col < 0)
         {
-            var a = laid.Appointment;
-            DrawBlock(canvas, a, a.Start, a.End, laid.Column, laid.ColumnsInGroup, contentX, contentW, isGhost: false);
+            return;
         }
 
-        if (Ghost is not null && GhostStart is not null && GhostEnd is not null)
+        float y = Scale.YForTime(now.TimeOfDay);
+        float x0 = contentX + (col * colW);
+        float x1 = x0 + colW;
+        canvas.FillColor = Theme.Today;
+        canvas.FillCircle(x0, y, 4);
+        canvas.StrokeColor = Theme.Today;
+        canvas.StrokeSize = 1.5f;
+        canvas.DrawLine(x0, y, x1, y);
+    }
+
+    private void DrawGhost(ICanvas canvas, float contentX, float colW, int n)
+    {
+        if (Ghost is null || GhostStart is null || GhostEnd is null)
         {
-            int col = 0;
-            int cols = 1;
-            foreach (var l in Appointments)
+            return;
+        }
+
+        var gStart = GhostStart.Value;
+        int col = 0;
+        int cols = 1;
+        int dayIndex = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (Days[i] == DateOnly.FromDateTime(gStart))
+            {
+                dayIndex = i;
+                break;
+            }
+        }
+
+        if (dayIndex < ColumnsByDay.Count)
+        {
+            foreach (var l in ColumnsByDay[dayIndex])
             {
                 if (ReferenceEquals(l.Appointment, Ghost))
                 {
@@ -119,26 +283,12 @@ public sealed class DayAgendaDrawable : IDrawable
                     break;
                 }
             }
-
-            DrawBlock(canvas, Ghost, GhostStart.Value, GhostEnd.Value, col, cols, contentX, contentW, isGhost: true);
         }
 
-        if (Now is { } now && DateOnly.FromDateTime(now) == Day)
-        {
-            float y = Scale.YForTime(now.TimeOfDay);
-            canvas.FillColor = Theme.Today;
-            canvas.FillCircle(contentX, y, 4);
-            canvas.StrokeColor = Theme.Today;
-            canvas.StrokeSize = 1.5f;
-            canvas.DrawLine(contentX, y, w, y);
-        }
-    }
-
-    private static string FormatTime(DateTime t)
-    {
-        return t.Minute == 0
-            ? t.ToString("h tt", CultureInfo.CurrentCulture).ToLowerInvariant()
-            : t.ToString("h:mm tt", CultureInfo.CurrentCulture).ToLowerInvariant();
+        float x0 = contentX + (dayIndex * colW);
+        var dayStart = Days[dayIndex].ToDateTime(TimeOnly.MinValue);
+        var dayEnd = dayStart.AddDays(1);
+        DrawBlock(canvas, Ghost, gStart, GhostEnd.Value, col, cols, x0, colW, dayStart, dayEnd, isGhost: true);
     }
 
     private void DrawBlock(
@@ -148,20 +298,20 @@ public sealed class DayAgendaDrawable : IDrawable
         DateTime end,
         int col,
         int cols,
-        float contentX,
-        float contentW,
+        float columnX,
+        float columnW,
+        DateTime dayStart,
+        DateTime dayEnd,
         bool isGhost)
     {
-        float y1 = Scale.YForTime(start.TimeOfDay);
-        float y2 = Scale.YForTime(end.TimeOfDay);
-        if (end.Date > start.Date)
-        {
-            y2 = Scale.YForTime(TimeSpan.FromHours(24));
-        }
+        var clipStart = start < dayStart ? dayStart : start;
+        var clipEnd = end > dayEnd ? dayEnd : end;
+        float y1 = Scale.YForTime(clipStart - dayStart);
+        float y2 = Scale.YForTime(clipEnd - dayStart);
 
-        float colW = contentW / Math.Max(1, cols);
-        float x = contentX + (col * colW) + 2;
-        float rw = colW - 4;
+        float slotW = columnW / Math.Max(1, cols);
+        float x = columnX + (col * slotW) + 2;
+        float rw = slotW - 4;
         float rh = MathF.Max(y2 - y1, 20);
         var rect = new RectF(x, y1, rw, rh);
 
@@ -169,6 +319,12 @@ public sealed class DayAgendaDrawable : IDrawable
         {
             hitMap.Add((a, rect));
         }
+
+        float fontScale = Scale.HourHeight / 60f;
+        float titleSize = 12 * fontScale;
+        float titleBoxH = 16 * fontScale;
+        float rangeSize = 10 * fontScale;
+        float rangeBoxH = 14 * fontScale;
 
         var bg = a.Color ?? Theme.Accent;
         var bgSoft = new Color(bg.Red, bg.Green, bg.Blue, isGhost ? 0.35f : 0.18f);
@@ -180,23 +336,23 @@ public sealed class DayAgendaDrawable : IDrawable
 
         var textColor = new Color(bg.Red * 0.5f, bg.Green * 0.5f, bg.Blue * 0.5f);
         canvas.FontColor = textColor;
-        canvas.FontSize = 12;
+        canvas.FontSize = titleSize;
         canvas.Font = Microsoft.Maui.Graphics.Font.DefaultBold;
         canvas.DrawString(
             a.Title ?? string.Empty,
-            new RectF(x + 8, y1 + 2, rw - 10, MathF.Min(16, rh - 4)),
+            new RectF(x + 8, y1 + 2, rw - 10, MathF.Min(titleBoxH, rh - 4)),
             HorizontalAlignment.Left,
             VerticalAlignment.Top);
 
-        if (rh > 30)
+        if (rh > titleBoxH + rangeBoxH)
         {
             canvas.Font = Microsoft.Maui.Graphics.Font.Default;
-            canvas.FontSize = 10;
+            canvas.FontSize = rangeSize;
             canvas.FontColor = Theme.Muted;
             var range = $"{FormatTime(start)} – {FormatTime(end)}";
             canvas.DrawString(
                 range,
-                new RectF(x + 8, y1 + 18, rw - 10, 14),
+                new RectF(x + 8, y1 + titleBoxH + 2, rw - 10, rangeBoxH),
                 HorizontalAlignment.Left,
                 VerticalAlignment.Top);
         }

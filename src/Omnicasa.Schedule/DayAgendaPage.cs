@@ -5,9 +5,11 @@ using Microsoft.Maui.Layouts;
 
 namespace Omnicasa.Schedule;
 
-/// <summary>A single-day page hosted inside <see cref="DayAgendaView"/>'s carousel.</summary>
+/// <summary>A one-or-more day page hosted inside <see cref="DayAgendaView"/>'s carousel.</summary>
 internal class DayAgendaPage : ContentView
 {
+    private const float MultiDayHeaderHeight = 36f;
+
     private readonly DayAgendaView host;
 
     private readonly DayAgendaDrawable drawable = new DayAgendaDrawable();
@@ -30,9 +32,23 @@ internal class DayAgendaPage : ContentView
 
     private DateTime dragOriginEnd;
 
+    private DateTime dragDay;
+
     private CancellationTokenSource? loadCts;
 
-    private DateTime? currentDay;
+    private DateTime? anchorDay;
+
+    private int daysInPage = 1;
+
+    private double pinchBase = 60;
+
+    private double pinchScale = 1.0;
+
+    private double pinchAnchorHours = -1;
+
+    private double pinchAnchorViewportY;
+
+    private bool suppressScrollSync;
 
     /// <summary>Initializes a new instance of the <see cref="DayAgendaPage"/> class.</summary>
     /// <param name="host">The parent <see cref="DayAgendaView"/> that owns shared state.</param>
@@ -41,7 +57,8 @@ internal class DayAgendaPage : ContentView
         this.host = host;
 
         drawable.Theme = host.Theme;
-        drawable.Scale = new TimeScale((float)host.HourHeight);
+        drawable.HeaderHeight = HeaderHeightFor(host.DaysPerPage);
+        drawable.Scale = new TimeScale((float)host.HourHeight, drawable.HeaderHeight);
 
         canvas = new GraphicsView
         {
@@ -54,11 +71,18 @@ internal class DayAgendaPage : ContentView
         tap.Tapped += OnCanvasTapped;
         canvas.GestureRecognizers.Add(tap);
 
+        var pinch = new PinchGestureRecognizer();
+        pinch.PinchUpdated += OnPinch;
+        canvas.GestureRecognizers.Add(pinch);
+
         scroll = new ScrollView
         {
             Content = canvas,
             Orientation = ScrollOrientation.Vertical,
         };
+        scroll.Scrolled += OnScrolled;
+        scroll.SizeChanged += OnLayoutSettled;
+        canvas.SizeChanged += OnLayoutSettled;
 
         moveHandle = BuildHandle(DragKind.Move);
         resizeHandle = BuildHandle(DragKind.Resize);
@@ -76,13 +100,26 @@ internal class DayAgendaPage : ContentView
         host.HourHeightChanged += OnHourHeightChanged;
         host.ThemeChanged += OnThemeChanged;
         host.SourceChanged += OnSourceChanged;
+        host.SharedScrollYChanged += OnSharedScrollYChanged;
+        host.DaysPerPageChanged += OnDaysPerPageChanged;
         BindingContextChanged += OnBindingContextChanged;
-        Loaded += (_, _) => ScrollToReasonableHour();
+        Loaded += (_, _) =>
+        {
+            SyncConfigFromHost();
+            if (anchorDay is not null)
+            {
+                _ = ReloadAsync();
+            }
+
+            InitialScroll();
+        };
         Unloaded += (_, _) =>
         {
             host.HourHeightChanged -= OnHourHeightChanged;
             host.ThemeChanged -= OnThemeChanged;
             host.SourceChanged -= OnSourceChanged;
+            host.SharedScrollYChanged -= OnSharedScrollYChanged;
+            host.DaysPerPageChanged -= OnDaysPerPageChanged;
             BindingContextChanged -= OnBindingContextChanged;
         };
     }
@@ -92,6 +129,9 @@ internal class DayAgendaPage : ContentView
         Move,
         Resize,
     }
+
+    private static float HeaderHeightFor(int daysPerPage)
+        => daysPerPage > 1 ? MultiDayHeaderHeight : 0f;
 
     private static DateTime ClampToDay(DateTime t, DateTime day, TimeSpan duration)
     {
@@ -138,16 +178,32 @@ internal class DayAgendaPage : ContentView
     {
         if (BindingContext is DateTime d)
         {
-            currentDay = d.Date;
-            drawable.Day = DateOnly.FromDateTime(d);
+            anchorDay = d.Date;
+            SyncConfigFromHost();
             ClearSelection();
             _ = ReloadAsync();
         }
     }
 
+    private void OnDaysPerPageChanged()
+    {
+        SyncConfigFromHost();
+        ClearSelection();
+        _ = ReloadAsync();
+    }
+
+    private void SyncConfigFromHost()
+    {
+        daysInPage = Math.Max(1, host.DaysPerPage);
+        var header = HeaderHeightFor(daysInPage);
+        drawable.HeaderHeight = header;
+        drawable.Scale = new TimeScale((float)host.HourHeight, header);
+        canvas.HeightRequest = drawable.Scale.TotalHeight;
+    }
+
     private void OnHourHeightChanged()
     {
-        drawable.Scale = new TimeScale((float)host.HourHeight);
+        drawable.Scale = new TimeScale((float)host.HourHeight, drawable.HeaderHeight);
         canvas.HeightRequest = drawable.Scale.TotalHeight;
         PositionHandles();
         canvas.Invalidate();
@@ -168,25 +224,59 @@ internal class DayAgendaPage : ContentView
         loadCts?.Cancel();
         loadCts = new CancellationTokenSource();
         var ct = loadCts.Token;
-        if (currentDay is null || host.AppointmentSource is null)
+        if (anchorDay is null)
         {
-            drawable.Appointments = Array.Empty<LaidOutAppointment>();
+            drawable.Days = new[] { DateOnly.FromDateTime(DateTime.Today) };
+            drawable.ColumnsByDay = new IReadOnlyList<LaidOutAppointment>[] { Array.Empty<LaidOutAppointment>() };
+            drawable.AllDayByDay = new IReadOnlyList<Appointment>[] { Array.Empty<Appointment>() };
             canvas.Invalidate();
             return;
         }
 
-        var day = currentDay.Value;
+        var n = daysInPage;
+        var from = anchorDay.Value;
+        var days = new DateOnly[n];
+        for (int i = 0; i < n; i++)
+        {
+            days[i] = DateOnly.FromDateTime(from.AddDays(i));
+        }
+
+        if (host.AppointmentSource is null)
+        {
+            drawable.Days = days;
+            drawable.ColumnsByDay = Enumerable.Range(0, n)
+                .Select(_ => (IReadOnlyList<LaidOutAppointment>)Array.Empty<LaidOutAppointment>())
+                .ToArray();
+            drawable.AllDayByDay = Enumerable.Range(0, n)
+                .Select(_ => (IReadOnlyList<Appointment>)Array.Empty<Appointment>())
+                .ToArray();
+            canvas.Invalidate();
+            return;
+        }
+
+        var to = from.AddDays(n).AddTicks(-1);
         try
         {
-            var list = await host.AppointmentSource.GetAsync(day, day.AddDays(1).AddTicks(-1), ct);
+            var list = await host.AppointmentSource.GetAsync(from, to, ct);
             if (ct.IsCancellationRequested)
             {
                 return;
             }
 
-            var forDay = list.Where(a => a.Start < day.AddDays(1) && a.End > day).ToList();
-            drawable.Appointments = EventLayoutEngine.Layout(forDay).ToList();
-            drawable.AllDay = forDay.Where(a => a.IsAllDay).ToList();
+            var columns = new IReadOnlyList<LaidOutAppointment>[n];
+            var allDay = new IReadOnlyList<Appointment>[n];
+            for (int i = 0; i < n; i++)
+            {
+                var dayStart = from.AddDays(i);
+                var dayEnd = dayStart.AddDays(1);
+                var forDay = list.Where(a => a.Start < dayEnd && a.End > dayStart).ToList();
+                columns[i] = EventLayoutEngine.Layout(forDay.Where(a => !a.IsAllDay)).ToList();
+                allDay[i] = forDay.Where(a => a.IsAllDay).ToList();
+            }
+
+            drawable.Days = days;
+            drawable.ColumnsByDay = columns;
+            drawable.AllDayByDay = allDay;
             drawable.Now = DateTime.Now;
             canvas.Invalidate();
         }
@@ -195,11 +285,143 @@ internal class DayAgendaPage : ContentView
         }
     }
 
-    private void ScrollToReasonableHour()
+    private void InitialScroll()
     {
-        var hour = Math.Max(0, DateTime.Now.Hour - 1);
-        var y = drawable.Scale.YForTime(TimeSpan.FromHours(hour));
-        _ = scroll.ScrollToAsync(0, y, false);
+        if (double.IsNaN(host.SharedScrollY))
+        {
+            var hour = Math.Max(0, DateTime.Now.Hour - 1);
+            var y = drawable.Scale.YForTime(TimeSpan.FromHours(hour));
+            host.UpdateSharedScrollY(y);
+        }
+
+        TryApplySharedScroll();
+    }
+
+    private void OnLayoutSettled(object? sender, EventArgs e) => TryApplySharedScroll();
+
+    private void TryApplySharedScroll()
+    {
+        if (suppressScrollSync)
+        {
+            return;
+        }
+
+        if (double.IsNaN(host.SharedScrollY))
+        {
+            return;
+        }
+
+        if (scroll.Height <= 0 || canvas.Height <= 0)
+        {
+            return;
+        }
+
+        if (Math.Abs(scroll.ScrollY - host.SharedScrollY) < 0.5)
+        {
+            return;
+        }
+
+        _ = ScrollToSilently(host.SharedScrollY);
+    }
+
+    private async Task ScrollToSilently(double y)
+    {
+        suppressScrollSync = true;
+        try
+        {
+            await scroll.ScrollToAsync(0, y, false);
+        }
+        finally
+        {
+            suppressScrollSync = false;
+        }
+    }
+
+    private void OnScrolled(object? sender, ScrolledEventArgs e)
+    {
+        if (suppressScrollSync)
+        {
+            return;
+        }
+
+        host.UpdateSharedScrollY(e.ScrollY);
+    }
+
+    private async void OnSharedScrollYChanged(double y)
+    {
+        if (Math.Abs(scroll.ScrollY - y) < 0.5)
+        {
+            return;
+        }
+
+        await ScrollToSilently(y);
+    }
+
+    private void OnPinch(object? sender, PinchGestureUpdatedEventArgs e)
+    {
+        switch (e.Status)
+        {
+            case GestureStatus.Started:
+                pinchBase = host.HourHeight;
+                pinchScale = 1.0;
+                pinchAnchorHours = -1;
+                suppressScrollSync = true;
+                moveHandle.IsVisible = false;
+                resizeHandle.IsVisible = false;
+                break;
+
+            case GestureStatus.Running:
+                if (pinchAnchorHours < 0)
+                {
+                    CaptureAnchor(e.ScaleOrigin.Y);
+                }
+
+                pinchScale *= e.Scale;
+                var target = Math.Clamp(pinchBase * pinchScale, 24, 200);
+                if (Math.Abs(target - drawable.Scale.HourHeight) >= 1.0)
+                {
+                    ApplyLocalHourHeight(target);
+                    KeepAnchorPinned();
+                }
+
+                break;
+
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                var final = Math.Clamp(pinchBase * pinchScale, 24, 200);
+                pinchScale = 1.0;
+                pinchAnchorHours = -1;
+                host.HourHeight = final;
+                var committedY = scroll.ScrollY;
+                suppressScrollSync = false;
+                host.UpdateSharedScrollY(committedY);
+                PositionHandles();
+                break;
+        }
+    }
+
+    private void CaptureAnchor(double originFraction)
+    {
+        var oldTotal = drawable.Scale.TotalHeight;
+        var anchorCanvasY = originFraction * oldTotal;
+        pinchAnchorHours = drawable.Scale.TimeForY((float)anchorCanvasY).TotalHours;
+        pinchAnchorViewportY = anchorCanvasY - scroll.ScrollY;
+    }
+
+    private void KeepAnchorPinned()
+    {
+        var newAnchorCanvasY = drawable.Scale.YForTime(TimeSpan.FromHours(pinchAnchorHours));
+        var newScrollY = newAnchorCanvasY - pinchAnchorViewportY;
+        var maxScroll = Math.Max(0, drawable.Scale.TotalHeight - scroll.Height);
+        newScrollY = Math.Clamp(newScrollY, 0, maxScroll);
+        _ = scroll.ScrollToAsync(0, newScrollY, false);
+    }
+
+    private void ApplyLocalHourHeight(double h)
+    {
+        drawable.Scale = new TimeScale((float)h, drawable.HeaderHeight);
+        canvas.HeightRequest = drawable.Scale.TotalHeight;
+        canvas.Invalidate();
     }
 
     private void OnCanvasTapped(object? sender, TappedEventArgs e)
@@ -272,7 +494,7 @@ internal class DayAgendaPage : ContentView
 
     private void OnHandlePan(DragKind kind, PanUpdatedEventArgs e)
     {
-        if (selected is null || currentDay is null)
+        if (selected is null)
         {
             return;
         }
@@ -284,6 +506,7 @@ internal class DayAgendaPage : ContentView
                 dragKind = kind;
                 dragOriginStart = selected.Start;
                 dragOriginEnd = selected.End;
+                dragDay = selected.Start.Date;
                 scroll.Orientation = ScrollOrientation.Neither;
                 drawable.Ghost = selected;
                 drawable.GhostStart = selected.Start;
@@ -301,7 +524,7 @@ internal class DayAgendaPage : ContentView
                 if (kind == DragKind.Move)
                 {
                     var duration = dragOriginEnd - dragOriginStart;
-                    var newStart = ClampToDay(dragOriginStart.AddMinutes(minutes), currentDay.Value, duration);
+                    var newStart = ClampToDay(dragOriginStart.AddMinutes(minutes), dragDay, duration);
                     drawable.GhostStart = newStart;
                     drawable.GhostEnd = newStart + duration;
                 }
@@ -314,7 +537,7 @@ internal class DayAgendaPage : ContentView
                         newEnd = min;
                     }
 
-                    var dayEnd = currentDay.Value.AddDays(1);
+                    var dayEnd = dragDay.AddDays(1);
                     if (newEnd > dayEnd)
                     {
                         newEnd = dayEnd;

@@ -6,15 +6,35 @@
              Title="Day">
 
     <Grid RowDefinitions="Auto,*" Padding="0">
-        <Label x:Name="HeaderLabel"
-               Grid.Row="0"
-               FontSize="22"
-               FontAttributes="Bold"
-               Padding="16,8"
-               HorizontalOptions="Start" />
+        <Grid Grid.Row="0"
+              ColumnDefinitions="*,Auto"
+              Padding="16,8"
+              ColumnSpacing="8">
+            <Label x:Name="HeaderLabel"
+                   Grid.Column="0"
+                   FontSize="22"
+                   FontAttributes="Bold"
+                   VerticalOptions="Center" />
+
+            <Picker x:Name="ModePicker"
+                    Grid.Column="1"
+                    Title="Mode"
+                    WidthRequest="110"
+                    SelectedIndexChanged="OnModeChanged">
+                <Picker.ItemsSource>
+                    <x:Array Type="{x:Type x:String}">
+                        <x:String>Day</x:String>
+                        <x:String>3 Days</x:String>
+                        <x:String>5 Days</x:String>
+                        <x:String>Week</x:String>
+                    </x:Array>
+                </Picker.ItemsSource>
+            </Picker>
+        </Grid>
 
         <sched:DayAgendaView x:Name="Day"
                              Grid.Row="1"
+                             DaysPerPage="3"
                              AppointmentTapped="OnAppointmentTapped"
                              AppointmentChanged="OnAppointmentChanged" />
     </Grid>

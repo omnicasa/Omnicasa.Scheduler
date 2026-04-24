@@ -4,8 +4,8 @@ using Microsoft.Maui.Graphics;
 namespace Omnicasa.Schedule;
 
 /// <summary>
-/// Displays a single day of appointments on a time rail with horizontal swipe to change days and
-/// pinch to zoom the time scale.
+/// Displays one or more days of appointments on a shared time rail, with horizontal swipe between
+/// pages and pinch to zoom the time scale.
 /// </summary>
 public class DayAgendaView : ContentView
 {
@@ -49,6 +49,25 @@ public class DayAgendaView : ContentView
     public static readonly BindableProperty DayWindowProperty =
         BindableProperty.Create(nameof(DayWindow), typeof(int), typeof(DayAgendaView), 365);
 
+    /// <summary>Bindable property for <see cref="DaysPerPage"/>.</summary>
+    public static readonly BindableProperty DaysPerPageProperty =
+        BindableProperty.Create(
+            nameof(DaysPerPage),
+            typeof(int),
+            typeof(DayAgendaView),
+            1,
+            propertyChanged: (b, _, _) => ((DayAgendaView)b).OnDaysPerPageChangedInternal(),
+            coerceValue: (_, v) => Math.Clamp((int)v, 1, 7));
+
+    /// <summary>Bindable property for <see cref="FirstDayOfWeek"/>.</summary>
+    public static readonly BindableProperty FirstDayOfWeekProperty =
+        BindableProperty.Create(
+            nameof(FirstDayOfWeek),
+            typeof(DayOfWeek),
+            typeof(DayAgendaView),
+            DayOfWeek.Monday,
+            propertyChanged: (b, _, _) => ((DayAgendaView)b).OnFirstDayOfWeekChanged());
+
     private readonly ScheduleTheme fallbackTheme = new ScheduleTheme();
 
     private readonly CarouselView carousel;
@@ -56,8 +75,6 @@ public class DayAgendaView : ContentView
     private List<DateTime> dates = new List<DateTime>();
 
     private bool suppressSelect;
-
-    private double pinchBase = 60;
 
     /// <summary>Initializes a new instance of the <see cref="DayAgendaView"/> class.</summary>
     public DayAgendaView()
@@ -77,10 +94,6 @@ public class DayAgendaView : ContentView
         carousel.CurrentItemChanged += OnCurrentItemChanged;
         Content = carousel;
 
-        var pinch = new PinchGestureRecognizer();
-        pinch.PinchUpdated += OnPinch;
-        GestureRecognizers.Add(pinch);
-
         BuildDates();
     }
 
@@ -99,6 +112,15 @@ public class DayAgendaView : ContentView
     /// <summary>Internal: fired when <see cref="AppointmentSource"/> changes, for child pages.</summary>
     internal event Action<IAppointmentSource?>? SourceChanged;
 
+    /// <summary>Internal: fired when the shared scroll position changes, so other pages can align.</summary>
+    internal event Action<double>? SharedScrollYChanged;
+
+    /// <summary>Internal: fired when <see cref="DaysPerPage"/> changes, for child pages.</summary>
+    internal event Action? DaysPerPageChanged;
+
+    /// <summary>Gets the shared vertical scroll position across day pages, or NaN if uninitialized.</summary>
+    internal double SharedScrollY { get; private set; } = double.NaN;
+
     /// <summary>Gets or sets the color theme.</summary>
     public ScheduleTheme Theme
     {
@@ -113,7 +135,7 @@ public class DayAgendaView : ContentView
         set => SetValue(AppointmentSourceProperty, value);
     }
 
-    /// <summary>Gets or sets the currently displayed date.</summary>
+    /// <summary>Gets or sets the currently displayed date (first day of the visible page).</summary>
     public DateTime SelectedDate
     {
         get => (DateTime)GetValue(SelectedDateProperty);
@@ -127,11 +149,38 @@ public class DayAgendaView : ContentView
         set => SetValue(HourHeightProperty, Math.Clamp(value, 24, 200));
     }
 
-    /// <summary>Gets or sets the number of days to make swipable in each direction from the current date.</summary>
+    /// <summary>Gets or sets the number of days swipable in each direction from the anchor.</summary>
     public int DayWindow
     {
         get => (int)GetValue(DayWindowProperty);
         set => SetValue(DayWindowProperty, value);
+    }
+
+    /// <summary>Gets or sets the number of days shown side-by-side per page (1..7).</summary>
+    public int DaysPerPage
+    {
+        get => (int)GetValue(DaysPerPageProperty);
+        set => SetValue(DaysPerPageProperty, value);
+    }
+
+    /// <summary>Gets or sets the first day of the week, used for week-mode alignment (<see cref="DaysPerPage"/> == 7).</summary>
+    public DayOfWeek FirstDayOfWeek
+    {
+        get => (DayOfWeek)GetValue(FirstDayOfWeekProperty);
+        set => SetValue(FirstDayOfWeekProperty, value);
+    }
+
+    /// <summary>Sets the shared vertical scroll position and notifies pages.</summary>
+    /// <param name="y">New scroll position in logical pixels.</param>
+    internal void UpdateSharedScrollY(double y)
+    {
+        if (!double.IsNaN(SharedScrollY) && Math.Abs(y - SharedScrollY) < 0.5)
+        {
+            return;
+        }
+
+        SharedScrollY = y;
+        SharedScrollYChanged?.Invoke(y);
     }
 
     /// <summary>Internal: raises <see cref="AppointmentTapped"/> from child pages.</summary>
@@ -148,18 +197,31 @@ public class DayAgendaView : ContentView
         AppointmentChanged?.Invoke(this, new AppointmentEventArgs(a));
     }
 
+    private DateTime PageAnchor(DateTime date)
+    {
+        if (DaysPerPage == 7)
+        {
+            int delta = ((int)date.DayOfWeek - (int)FirstDayOfWeek + 7) % 7;
+            return date.Date.AddDays(-delta);
+        }
+
+        return date.Date;
+    }
+
     private void BuildDates()
     {
-        var center = SelectedDate.Date;
-        dates = new List<DateTime>((DayWindow * 2) + 1);
-        for (int i = -DayWindow; i <= DayWindow; i++)
+        var step = Math.Max(1, DaysPerPage);
+        var anchor = PageAnchor(SelectedDate);
+        var pagesEachSide = Math.Max(1, DayWindow / step);
+        dates = new List<DateTime>((pagesEachSide * 2) + 1);
+        for (int i = -pagesEachSide; i <= pagesEachSide; i++)
         {
-            dates.Add(center.AddDays(i));
+            dates.Add(anchor.AddDays(i * step));
         }
 
         suppressSelect = true;
         carousel.ItemsSource = dates;
-        carousel.CurrentItem = center;
+        carousel.CurrentItem = anchor;
         suppressSelect = false;
     }
 
@@ -184,29 +246,32 @@ public class DayAgendaView : ContentView
             return;
         }
 
-        if (d.Date < dates[0].Date || d.Date > dates[^1].Date)
+        var anchor = PageAnchor(d);
+        if (anchor < dates[0].Date || anchor > dates[^1].Date)
         {
             BuildDates();
             return;
         }
 
-        if (carousel.CurrentItem is DateTime cur && cur.Date != d.Date)
+        if (carousel.CurrentItem is DateTime cur && cur.Date != anchor)
         {
             suppressSelect = true;
-            carousel.CurrentItem = d.Date;
+            carousel.CurrentItem = anchor;
             suppressSelect = false;
         }
     }
 
-    private void OnPinch(object? sender, PinchGestureUpdatedEventArgs e)
+    private void OnDaysPerPageChangedInternal()
     {
-        if (e.Status == GestureStatus.Started)
+        DaysPerPageChanged?.Invoke();
+        BuildDates();
+    }
+
+    private void OnFirstDayOfWeekChanged()
+    {
+        if (DaysPerPage == 7)
         {
-            pinchBase = HourHeight;
-        }
-        else if (e.Status == GestureStatus.Running)
-        {
-            HourHeight = Math.Clamp(pinchBase * e.Scale, 24, 200);
+            BuildDates();
         }
     }
 

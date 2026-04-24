@@ -7,7 +7,7 @@
 
     <Grid RowDefinitions="Auto,*" Padding="0">
         <Grid Grid.Row="0"
-              ColumnDefinitions="*,Auto"
+              ColumnDefinitions="*,Auto,Auto"
               Padding="16,8"
               ColumnSpacing="8">
             <Label x:Name="HeaderLabel"
@@ -16,8 +16,19 @@
                    FontAttributes="Bold"
                    VerticalOptions="Center" />
 
+            <HorizontalStackLayout Grid.Column="1"
+                                   Spacing="6"
+                                   VerticalOptions="Center">
+                <Label Text="Persons"
+                       VerticalOptions="Center"
+                       FontSize="13" />
+                <Switch x:Name="PersonsSwitch"
+                        VerticalOptions="Center"
+                        Toggled="OnPersonsToggled" />
+            </HorizontalStackLayout>
+
             <Picker x:Name="ModePicker"
-                    Grid.Column="1"
+                    Grid.Column="2"
                     Title="Mode"
                     WidthRequest="110"
                     SelectedIndexChanged="OnModeChanged">

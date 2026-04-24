@@ -39,6 +39,10 @@ public class Appointment : BindableObject
     public static readonly BindableProperty NotesProperty =
         BindableProperty.Create(nameof(Notes), typeof(string), typeof(Appointment), null);
 
+    /// <summary>Bindable property for <see cref="PersonId"/>.</summary>
+    public static readonly BindableProperty PersonIdProperty =
+        BindableProperty.Create(nameof(PersonId), typeof(string), typeof(Appointment), null);
+
     /// <summary>Gets or sets the stable identifier of the appointment.</summary>
     public string Id
     {
@@ -93,6 +97,13 @@ public class Appointment : BindableObject
     {
         get => (string?)GetValue(NotesProperty);
         set => SetValue(NotesProperty, value);
+    }
+
+    /// <summary>Gets or sets the identifier of the <see cref="Person"/> this appointment belongs to.</summary>
+    public string? PersonId
+    {
+        get => (string?)GetValue(PersonIdProperty);
+        set => SetValue(PersonIdProperty, value);
     }
 
     /// <summary>Gets or sets an arbitrary payload carried with the appointment.</summary>

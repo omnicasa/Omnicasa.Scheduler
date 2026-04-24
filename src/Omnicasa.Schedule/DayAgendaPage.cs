@@ -297,7 +297,14 @@ internal class DayAgendaPage : ContentView
         TryApplySharedScroll();
     }
 
-    private void OnLayoutSettled(object? sender, EventArgs e) => TryApplySharedScroll();
+    private void OnLayoutSettled(object? sender, EventArgs e)
+    {
+        TryApplySharedScroll();
+        if (anchorDay is not null && drawable.ColumnsByDay.Count != daysInPage)
+        {
+            _ = ReloadAsync();
+        }
+    }
 
     private void TryApplySharedScroll()
     {

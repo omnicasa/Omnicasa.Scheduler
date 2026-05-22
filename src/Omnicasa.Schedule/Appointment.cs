@@ -4,8 +4,9 @@ namespace Omnicasa.Schedule;
 
 /// <summary>
 /// Represents a single calendar appointment or event rendered by the schedule controls.
+/// Implements <see cref="IScheduleItem"/> so the same instance can feed the new <see cref="ScheduleView"/>.
 /// </summary>
-public class Appointment : BindableObject
+public class Appointment : BindableObject, IScheduleItem
 {
     /// <summary>Bindable property for <see cref="Id"/>.</summary>
     public static readonly BindableProperty IdProperty =

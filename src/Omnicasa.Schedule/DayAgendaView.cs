@@ -189,6 +189,13 @@ public class DayAgendaView : ContentView
         set => SetValue(PersonsProperty, value);
     }
 
+    /// <summary>Enables or disables horizontal swiping between pages. Used by child pages during drag.</summary>
+    /// <param name="enabled">True to allow swiping, false to lock the carousel.</param>
+    internal void SetSwipeEnabled(bool enabled)
+    {
+        carousel.IsSwipeEnabled = enabled;
+    }
+
     /// <summary>Sets the shared vertical scroll position and notifies pages.</summary>
     /// <param name="y">New scroll position in logical pixels.</param>
     internal void UpdateSharedScrollY(double y)

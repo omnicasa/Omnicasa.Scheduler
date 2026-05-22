@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:sched="clr-namespace:Omnicasa.Schedule;assembly=Omnicasa.Schedule"
+             xmlns:local="clr-namespace:Omnicasa.Schedule.Sample"
+             x:Class="Omnicasa.Schedule.Sample.SchedulePage"
+             x:DataType="local:SchedulePageViewModel"
+             Title="ScheduleView">
+
+    <ContentPage.BindingContext>
+        <local:SchedulePageViewModel />
+    </ContentPage.BindingContext>
+
+    <Grid RowDefinitions="Auto,*" Padding="0">
+        <Grid Grid.Row="0"
+              ColumnDefinitions="*,Auto,Auto"
+              Padding="16,8"
+              ColumnSpacing="8">
+            <Label Grid.Column="0"
+                   Text="{Binding HeaderText}"
+                   FontSize="18"
+                   FontAttributes="Bold"
+                   VerticalOptions="Center" />
+
+            <HorizontalStackLayout Grid.Column="1"
+                                   Spacing="6"
+                                   VerticalOptions="Center">
+                <Label Text="Persons"
+                       VerticalOptions="Center"
+                       FontSize="13" />
+                <Switch IsToggled="{Binding ShowPersons}"
+                        VerticalOptions="Center" />
+            </HorizontalStackLayout>
+
+            <Picker Grid.Column="2"
+                    Title="Days"
+                    WidthRequest="100"
+                    SelectedIndex="{Binding ViewModeIndex}">
+                <Picker.ItemsSource>
+                    <x:Array Type="{x:Type x:String}">
+                        <x:String>1</x:String>
+                        <x:String>2</x:String>
+                        <x:String>3</x:String>
+                        <x:String>4</x:String>
+                        <x:String>5</x:String>
+                        <x:String>6</x:String>
+                        <x:String>7</x:String>
+                    </x:Array>
+                </Picker.ItemsSource>
+            </Picker>
+        </Grid>
+
+        <sched:ScheduleView Grid.Row="1"
+                            StartDay="{Binding StartDay}"
+                            EndDay="{Binding EndDay}"
+                            ViewMode="{Binding ViewMode}"
+                            Persons="{Binding Persons}"
+                            ItemsSource="{Binding Items}"
+                            Tapped="OnTapped"
+                            LongTapped="OnLongTapped"
+                            ItemTapped="OnItemTapped"
+                            ItemLongTapped="OnItemLongTapped" />
+    </Grid>
+
+</ContentPage>

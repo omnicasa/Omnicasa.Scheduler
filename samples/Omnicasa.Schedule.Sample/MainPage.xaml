@@ -5,6 +5,10 @@
              x:Class="Omnicasa.Schedule.Sample.MainPage"
              Title="Year">
 
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Schedule" Clicked="OnOpenSchedule" />
+    </ContentPage.ToolbarItems>
+
     <sched:YearCalendarView x:Name="Year"
                             MinYear="2020"
                             MaxYear="2032"

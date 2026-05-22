@@ -61,11 +61,17 @@ public sealed class DayAgendaDrawable : IDrawable
     /// <summary>Gets or sets the ghost end time used during drag operations.</summary>
     public DateTime? GhostEnd { get; set; }
 
+    /// <summary>Gets or sets the target column index for the ghost during drag (override).</summary>
+    public int? GhostColumnIndex { get; set; }
+
     /// <summary>Gets the hit-test map populated after <see cref="Draw"/>.</summary>
     public IReadOnlyList<(Appointment Item, RectF Rect)> HitMap => hitMap;
 
     /// <summary>Gets the resize-handle rectangles populated after <see cref="Draw"/>.</summary>
     public IReadOnlyList<(Appointment Item, RectF Handle)> ResizeHandles => resizeHandles;
+
+    /// <summary>Fired at the end of <see cref="Draw"/> so callers can react to the now-current <see cref="HitMap"/>.</summary>
+    public event Action? Drawn;
 
     /// <inheritdoc />
     public void Draw(ICanvas canvas, RectF dirtyRect)
@@ -97,6 +103,8 @@ public sealed class DayAgendaDrawable : IDrawable
         DrawColumnSeparators(canvas, contentX, colW, n, h);
         DrawTodayMarker(canvas, contentX, colW, n);
         DrawGhost(canvas, contentX, colW, n);
+
+        Drawn?.Invoke();
     }
 
     private static string FormatTime(DateTime t)
@@ -336,22 +344,30 @@ public sealed class DayAgendaDrawable : IDrawable
         int columnIndex = -1;
         int col = 0;
         int cols = 1;
-        for (int i = 0; i < n; i++)
+
+        if (GhostColumnIndex is int forced && forced >= 0 && forced < n)
         {
-            foreach (var l in Columns[i].Events)
+            columnIndex = forced;
+        }
+        else
+        {
+            for (int i = 0; i < n; i++)
             {
-                if (ReferenceEquals(l.Appointment, Ghost))
+                foreach (var l in Columns[i].Events)
                 {
-                    columnIndex = i;
-                    col = l.Column;
-                    cols = l.ColumnsInGroup;
+                    if (ReferenceEquals(l.Appointment, Ghost))
+                    {
+                        columnIndex = i;
+                        col = l.Column;
+                        cols = l.ColumnsInGroup;
+                        break;
+                    }
+                }
+
+                if (columnIndex >= 0)
+                {
                     break;
                 }
-            }
-
-            if (columnIndex >= 0)
-            {
-                break;
             }
         }
 

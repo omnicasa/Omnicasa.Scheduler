@@ -53,6 +53,12 @@ internal class DayAgendaPage : ContentView
 
     private bool suppressScrollSync;
 
+    private IDispatcherTimer? longPressTimer;
+
+    private PointF longPressStartPoint;
+
+    private bool longPressActive;
+
     /// <summary>Initializes a new instance of the <see cref="DayAgendaPage"/> class.</summary>
     /// <param name="host">The parent <see cref="DayAgendaView"/> that owns shared state.</param>
     public DayAgendaPage(DayAgendaView host)
@@ -76,6 +82,18 @@ internal class DayAgendaPage : ContentView
         var pinch = new PinchGestureRecognizer();
         pinch.PinchUpdated += OnPinch;
         canvas.GestureRecognizers.Add(pinch);
+
+        var pointer = new PointerGestureRecognizer();
+        pointer.PointerPressed += OnPointerPressed;
+        pointer.PointerMoved += OnPointerMoved;
+        pointer.PointerReleased += OnPointerReleased;
+        pointer.PointerExited += OnPointerReleased;
+        canvas.GestureRecognizers.Add(pointer);
+
+        longPressTimer = Dispatcher.CreateTimer();
+        longPressTimer.Interval = TimeSpan.FromMilliseconds(400);
+        longPressTimer.IsRepeating = false;
+        longPressTimer.Tick += OnLongPressTick;
 
         scroll = new ScrollView
         {
@@ -105,6 +123,7 @@ internal class DayAgendaPage : ContentView
         host.SharedScrollYChanged += OnSharedScrollYChanged;
         host.DaysPerPageChanged += OnConfigChanged;
         host.PersonsChanged += OnConfigChanged;
+        drawable.Drawn += OnDrawableDrawn;
         BindingContextChanged += OnBindingContextChanged;
         Loaded += (_, _) =>
         {
@@ -124,6 +143,7 @@ internal class DayAgendaPage : ContentView
             host.SharedScrollYChanged -= OnSharedScrollYChanged;
             host.DaysPerPageChanged -= OnConfigChanged;
             host.PersonsChanged -= OnConfigChanged;
+            drawable.Drawn -= OnDrawableDrawn;
             BindingContextChanged -= OnBindingContextChanged;
         };
     }
@@ -508,6 +528,166 @@ internal class DayAgendaPage : ContentView
         ClearSelection();
     }
 
+    private void OnPointerPressed(object? sender, PointerEventArgs e)
+    {
+        var pt = e.GetPosition(canvas);
+        if (pt is null)
+        {
+            return;
+        }
+
+        longPressStartPoint = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+        longPressActive = false;
+        longPressTimer?.Stop();
+        longPressTimer?.Start();
+    }
+
+    private void OnPointerMoved(object? sender, PointerEventArgs e)
+    {
+        var pt = e.GetPosition(canvas);
+        if (pt is null)
+        {
+            return;
+        }
+
+        var p = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+        if (!longPressActive)
+        {
+            if (Math.Abs(p.X - longPressStartPoint.X) > 12 || Math.Abs(p.Y - longPressStartPoint.Y) > 12)
+            {
+                longPressTimer?.Stop();
+            }
+
+            return;
+        }
+
+        if (dragging is null)
+        {
+            return;
+        }
+
+        int targetCol = HitTestColumn(p.X);
+        if (targetCol < 0)
+        {
+            return;
+        }
+
+        var targetDayStart = drawable.Columns[targetCol].DayStart;
+        var duration = dragOriginEnd - dragOriginStart;
+        var dy = p.Y - longPressStartPoint.Y;
+        var minutes = Math.Round(dy / host.HourHeight * 60.0 / 15.0) * 15.0;
+        var tentative = targetDayStart.Add(dragOriginStart.TimeOfDay).AddMinutes(minutes);
+        var newStart = ClampToDay(tentative, targetDayStart, duration);
+
+        drawable.GhostStart = newStart;
+        drawable.GhostEnd = newStart + duration;
+        drawable.GhostColumnIndex = targetCol;
+        dragDay = targetDayStart;
+        canvas.Invalidate();
+    }
+
+    private int HitTestColumn(float x)
+    {
+        int n = drawable.Columns.Count;
+        if (n == 0)
+        {
+            return -1;
+        }
+
+        float railWidth = drawable.TimeRailWidth;
+        float width = (float)canvas.Width;
+        if (width <= railWidth)
+        {
+            return -1;
+        }
+
+        float colW = (width - railWidth) / n;
+        if (colW <= 0)
+        {
+            return -1;
+        }
+
+        int idx = (int)Math.Floor((x - railWidth) / colW);
+        return Math.Clamp(idx, 0, n - 1);
+    }
+
+    private void OnPointerReleased(object? sender, PointerEventArgs e)
+    {
+        longPressTimer?.Stop();
+        if (!longPressActive)
+        {
+            return;
+        }
+
+        longPressActive = false;
+        scroll.Orientation = ScrollOrientation.Vertical;
+        host.SetSwipeEnabled(true);
+        if (dragging is not null
+            && drawable.GhostStart is { } gs
+            && drawable.GhostEnd is { } ge)
+        {
+            dragging.Start = gs;
+            dragging.End = ge;
+
+            if (drawable.GhostColumnIndex is int idx && idx >= 0 && idx < drawable.Columns.Count)
+            {
+                int personCount = host.Persons is { Count: > 0 } ? host.Persons.Count : 0;
+                if (personCount > 0)
+                {
+                    var person = host.Persons![idx % personCount];
+                    dragging.PersonId = person.Id;
+                }
+            }
+
+            host.RaiseAppointmentChanged(dragging);
+            _ = ReloadAsync();
+        }
+
+        drawable.Ghost = null;
+        drawable.GhostStart = null;
+        drawable.GhostEnd = null;
+        drawable.GhostColumnIndex = null;
+        dragging = null;
+        canvas.Invalidate();
+    }
+
+    private void OnLongPressTick(object? sender, EventArgs e)
+    {
+        longPressTimer?.Stop();
+        foreach (var (a, rect) in drawable.HitMap)
+        {
+            if (!rect.Contains(longPressStartPoint))
+            {
+                continue;
+            }
+
+            longPressActive = true;
+            selected = a;
+            dragging = a;
+            dragKind = DragKind.Move;
+            dragOriginStart = a.Start;
+            dragOriginEnd = a.End;
+            dragDay = a.Start.Date;
+            scroll.Orientation = ScrollOrientation.Neither;
+            host.SetSwipeEnabled(false);
+            drawable.Ghost = a;
+            drawable.GhostStart = a.Start;
+            drawable.GhostEnd = a.End;
+            moveHandle.IsVisible = false;
+            resizeHandle.IsVisible = false;
+            canvas.Invalidate();
+            return;
+        }
+    }
+
+    private void OnDrawableDrawn()
+    {
+        if (selected is not null && dragging is null)
+        {
+            PositionHandles();
+        }
+    }
+
     private void ClearSelection()
     {
         selected = null;
@@ -569,6 +749,7 @@ internal class DayAgendaPage : ContentView
                 dragOriginEnd = selected.End;
                 dragDay = selected.Start.Date;
                 scroll.Orientation = ScrollOrientation.Neither;
+                host.SetSwipeEnabled(false);
                 drawable.Ghost = selected;
                 drawable.GhostStart = selected.Start;
                 drawable.GhostEnd = selected.End;
@@ -613,6 +794,7 @@ internal class DayAgendaPage : ContentView
             case GestureStatus.Completed:
             case GestureStatus.Canceled:
                 scroll.Orientation = ScrollOrientation.Vertical;
+                host.SetSwipeEnabled(true);
                 if (dragging is not null
                     && drawable.GhostStart is { } gs
                     && drawable.GhostEnd is { } ge
@@ -627,9 +809,9 @@ internal class DayAgendaPage : ContentView
                 drawable.Ghost = null;
                 drawable.GhostStart = null;
                 drawable.GhostEnd = null;
+                drawable.GhostColumnIndex = null;
                 dragging = null;
                 canvas.Invalidate();
-                PositionHandles();
                 break;
         }
     }

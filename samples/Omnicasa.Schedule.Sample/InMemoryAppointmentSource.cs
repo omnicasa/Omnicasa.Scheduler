@@ -8,6 +8,9 @@ public sealed class InMemoryAppointmentSource : IAppointmentSource
 {
     private readonly List<Appointment> items = new List<Appointment>();
 
+    /// <summary>Read-only view of all appointments, usable as <see cref="ScheduleView.ItemsSource"/>.</summary>
+    public IReadOnlyList<Appointment> AllItems => items;
+
     /// <summary>Initializes a new instance of the <see cref="InMemoryAppointmentSource"/> class.</summary>
     public InMemoryAppointmentSource()
     {

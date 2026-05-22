@@ -19,4 +19,9 @@ public partial class MainPage : ContentPage
     {
         await Shell.Current.GoToAsync($"{nameof(DayPage)}?date={e.Date:yyyy-MM-dd}");
     }
+
+    private async void OnOpenSchedule(object? sender, EventArgs e)
+    {
+        await Shell.Current.GoToAsync(nameof(SchedulePage));
+    }
 }

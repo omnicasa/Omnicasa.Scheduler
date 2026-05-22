@@ -36,7 +36,7 @@ jobs:
           DATE=$(date -u +'%Y.%m%d')
           VERSION="${DATE}.${{ github.run_number }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed package version: $VERSION"
+          echo "Computed package version: $VERSION (NuGet will display this as a normalized form, e.g. leading zero in the 'MMdd' segment is stripped — sort order is preserved)."
 
       - name: Restore
         run: dotnet restore "$LIBRARY_PROJECT"

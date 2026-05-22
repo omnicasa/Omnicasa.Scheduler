@@ -21,6 +21,9 @@ public sealed class ScheduleViewColumn
     /// <summary>True when this column's day equals <see cref="DateTime.Today"/>.</summary>
     public bool IsToday { get; set; }
 
+    /// <summary>Optional person id used to match a typing item to this column when in persons mode.</summary>
+    public string? PersonId { get; set; }
+
     /// <summary>Items rendered in this column (after overlap layout).</summary>
     public IReadOnlyList<LaidOutItem> Items { get; set; } = Array.Empty<LaidOutItem>();
 }
@@ -45,6 +48,9 @@ public sealed class ScheduleRenderContext
 
     /// <summary>Optional "now" timestamp used to draw the today marker.</summary>
     public DateTime? Now { get; set; }
+
+    /// <summary>Optional draft / typing item rendered as a shadowed overlay over the body.</summary>
+    public ITypingScheduleItem? TypingItem { get; set; }
 }
 
 /// <summary>Renders the sticky header bar (day groups + per-column sub-headers) above <see cref="ScheduleView"/>'s body.</summary>
@@ -178,16 +184,22 @@ public sealed class ScheduleBodyDrawable : IDrawable
 {
     private readonly List<(IScheduleItem Item, RectF Rect)> hitMap = new List<(IScheduleItem, RectF)>();
 
+    private RectF? typingRect;
+
     /// <summary>Shared render state.</summary>
     public ScheduleRenderContext Context { get; set; } = new ScheduleRenderContext();
 
     /// <summary>Hit map populated after every <see cref="Draw"/>.</summary>
     public IReadOnlyList<(IScheduleItem Item, RectF Rect)> HitMap => hitMap;
 
+    /// <summary>Rect of the rendered typing item, if any (populated by <see cref="Draw"/>).</summary>
+    public RectF? TypingRect => typingRect;
+
     /// <inheritdoc />
     public void Draw(ICanvas canvas, RectF dirtyRect)
     {
         hitMap.Clear();
+        typingRect = null;
 
         var ctx = Context;
         var theme = ctx.Theme;
@@ -222,6 +234,7 @@ public sealed class ScheduleBodyDrawable : IDrawable
 
         DrawColumnSeparators(canvas, contentX, colW, n, h);
         DrawTodayMarker(canvas, contentX, colW, n);
+        DrawTypingItem(canvas, contentX, colW);
     }
 
     private static string FormatTime(DateTime t)
@@ -389,5 +402,120 @@ public sealed class ScheduleBodyDrawable : IDrawable
                 HorizontalAlignment.Left,
                 VerticalAlignment.Top);
         }
+    }
+
+    private void DrawTypingItem(ICanvas canvas, float contentX, float colW)
+    {
+        var typing = Context.TypingItem;
+        if (typing is null || typing.IsAllDay)
+        {
+            return;
+        }
+
+        int colIdx = FindTypingColumn(typing);
+        if (colIdx < 0)
+        {
+            return;
+        }
+
+        var column = Context.Columns[colIdx];
+        var dayStart = column.DayStart;
+        var dayEnd = dayStart.AddDays(1);
+        var clipStart = typing.Start < dayStart ? dayStart : typing.Start;
+        var clipEnd = typing.End > dayEnd ? dayEnd : typing.End;
+        if (clipEnd <= clipStart)
+        {
+            return;
+        }
+
+        var scale = Context.Scale;
+        var theme = Context.Theme;
+        float y1 = scale.YForTime(clipStart - dayStart);
+        float y2 = scale.YForTime(clipEnd - dayStart);
+        float x = contentX + (colIdx * colW) + 4;
+        float rw = colW - 8;
+        float rh = MathF.Max(y2 - y1, 24);
+        var rect = new RectF(x, y1, rw, rh);
+        typingRect = rect;
+
+        var bg = typing.Color ?? column.Accent ?? theme.Accent;
+
+        canvas.SaveState();
+        canvas.SetShadow(new SizeF(0, 3), 8, new Color(0, 0, 0, 0.35f));
+        canvas.FillColor = bg;
+        canvas.FillRoundedRectangle(rect, 8);
+        canvas.RestoreState();
+
+        // Corner handles: small circles with red border, white fill — top-left + bottom-right.
+        const float handleRadius = 7f;
+        var borderColor = theme.Today;
+        float topLeftCx = x + handleRadius;
+        float topLeftCy = y1 + handleRadius;
+        float bottomRightCx = (x + rw) - handleRadius;
+        float bottomRightCy = (y1 + rh) - handleRadius;
+
+        canvas.FillColor = Colors.White;
+        canvas.FillCircle(topLeftCx, topLeftCy, handleRadius);
+        canvas.FillCircle(bottomRightCx, bottomRightCy, handleRadius);
+
+        canvas.StrokeColor = borderColor;
+        canvas.StrokeSize = 2f;
+        canvas.DrawCircle(topLeftCx, topLeftCy, handleRadius);
+        canvas.DrawCircle(bottomRightCx, bottomRightCy, handleRadius);
+
+        // Title + range text in white-ish for contrast on the saturated background.
+        var textColor = new Color(1f, 1f, 1f, 0.95f);
+        float titleSize = (float)theme.BlockTitleFontSize;
+        float titleBoxH = titleSize + 4f;
+        float rangeSize = (float)theme.BlockRangeFontSize;
+        float rangeBoxH = rangeSize + 4f;
+
+        float textTopY = y1 + (2f * handleRadius) + 4f;
+        canvas.FontColor = textColor;
+        canvas.FontSize = titleSize;
+        canvas.Font = Microsoft.Maui.Graphics.Font.DefaultBold;
+        canvas.DrawString(
+            typing.Title ?? string.Empty,
+            new RectF(x + 10, textTopY, rw - 20, MathF.Min(titleBoxH, (y1 + rh) - textTopY - (2f * handleRadius))),
+            HorizontalAlignment.Left,
+            VerticalAlignment.Top);
+
+        if (rh > (4f * handleRadius) + titleBoxH + rangeBoxH + 4f)
+        {
+            canvas.FontSize = rangeSize;
+            canvas.Font = Microsoft.Maui.Graphics.Font.Default;
+            var range = $"{FormatTime(typing.Start)} – {FormatTime(typing.End)}";
+            canvas.DrawString(
+                range,
+                new RectF(x + 10, textTopY + titleBoxH, rw - 20, rangeBoxH),
+                HorizontalAlignment.Left,
+                VerticalAlignment.Top);
+        }
+    }
+
+    private int FindTypingColumn(ITypingScheduleItem typing)
+    {
+        var typingDate = DateOnly.FromDateTime(typing.Start);
+        int matchByDayOnly = -1;
+        for (int i = 0; i < Context.Columns.Count; i++)
+        {
+            var col = Context.Columns[i];
+            if (DateOnly.FromDateTime(col.DayStart) != typingDate)
+            {
+                continue;
+            }
+
+            if (string.Equals(col.PersonId, typing.PersonId, StringComparison.Ordinal))
+            {
+                return i;
+            }
+
+            if (matchByDayOnly < 0)
+            {
+                matchByDayOnly = i;
+            }
+        }
+
+        return matchByDayOnly;
     }
 }

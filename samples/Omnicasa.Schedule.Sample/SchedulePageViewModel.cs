@@ -26,6 +26,10 @@ public class SchedulePageViewModel : INotifyPropertyChanged
 
     private IList<Person>? persons;
 
+    private bool showTyping;
+
+    private ITypingScheduleItem? typingItem;
+
     /// <summary>Initializes a new instance of the <see cref="SchedulePageViewModel"/> class.</summary>
     public SchedulePageViewModel()
     {
@@ -102,6 +106,41 @@ public class SchedulePageViewModel : INotifyPropertyChanged
         private set => Set(ref persons, value);
     }
 
+    /// <summary>Toggle that creates / clears a draft block bound to <see cref="ScheduleView.TypingItem"/>.</summary>
+    public bool ShowTyping
+    {
+        get => showTyping;
+        set
+        {
+            if (Set(ref showTyping, value))
+            {
+                if (value)
+                {
+                    var anchorStart = DateTime.Today.AddHours(10);
+                    TypingItem = new TypingItemModel
+                    {
+                        Id = "draft",
+                        Title = "New event",
+                        Start = anchorStart,
+                        End = anchorStart.AddHours(1),
+                        Color = Color.FromArgb("#5856D6"),
+                    };
+                }
+                else
+                {
+                    TypingItem = null;
+                }
+            }
+        }
+    }
+
+    /// <summary>Bound to <see cref="ScheduleView.TypingItem"/>.</summary>
+    public ITypingScheduleItem? TypingItem
+    {
+        get => typingItem;
+        private set => Set(ref typingItem, value);
+    }
+
     /// <summary>Friendly date range label for the header (derived).</summary>
     public string HeaderText
     {
@@ -142,5 +181,95 @@ public class SchedulePageViewModel : INotifyPropertyChanged
         field = value;
         OnPropertyChanged(name);
         return true;
+    }
+
+    /// <summary>Simple <see cref="ITypingScheduleItem"/> backing the demo draft block.</summary>
+    public sealed class TypingItemModel : ITypingScheduleItem
+    {
+        private string id = string.Empty;
+
+        private string? title;
+
+        private DateTime start;
+
+        private DateTime end;
+
+        private bool isAllDay;
+
+        private Color? color;
+
+        private string? personId;
+
+        private string? notes;
+
+        /// <inheritdoc />
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        /// <inheritdoc />
+        public string Id
+        {
+            get => id;
+            set => Set(ref id, value);
+        }
+
+        /// <inheritdoc />
+        public string? Title
+        {
+            get => title;
+            set => Set(ref title, value);
+        }
+
+        /// <inheritdoc />
+        public DateTime Start
+        {
+            get => start;
+            set => Set(ref start, value);
+        }
+
+        /// <inheritdoc />
+        public DateTime End
+        {
+            get => end;
+            set => Set(ref end, value);
+        }
+
+        /// <inheritdoc />
+        public bool IsAllDay
+        {
+            get => isAllDay;
+            set => Set(ref isAllDay, value);
+        }
+
+        /// <inheritdoc />
+        public Color? Color
+        {
+            get => color;
+            set => Set(ref color, value);
+        }
+
+        /// <inheritdoc />
+        public string? PersonId
+        {
+            get => personId;
+            set => Set(ref personId, value);
+        }
+
+        /// <inheritdoc />
+        public string? Notes
+        {
+            get => notes;
+            set => Set(ref notes, value);
+        }
+
+        private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value))
+            {
+                return;
+            }
+
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
     }
 }

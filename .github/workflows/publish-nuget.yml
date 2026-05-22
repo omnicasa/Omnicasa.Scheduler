@@ -1,0 +1,72 @@
+name: Publish NuGet
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: macos-latest
+
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      LIBRARY_PROJECT: src/Omnicasa.Schedule/Omnicasa.Schedule.csproj
+      ARTIFACTS_DIR: artifacts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install MAUI workloads
+        run: dotnet workload install maui --skip-sign-check
+
+      - name: Compute version (yyyy.MMdd.<run_number>)
+        id: ver
+        run: |
+          DATE=$(date -u +'%Y.%m%d')
+          VERSION="${DATE}.${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed package version: $VERSION"
+
+      - name: Restore
+        run: dotnet restore "$LIBRARY_PROJECT"
+
+      - name: Pack
+        run: |
+          dotnet pack "$LIBRARY_PROJECT" \
+            --configuration Release \
+            --no-restore \
+            -p:Version=${{ steps.ver.outputs.version }} \
+            -p:PackageVersion=${{ steps.ver.outputs.version }} \
+            --output "$ARTIFACTS_DIR"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: ${{ env.ARTIFACTS_DIR }}/*.nupkg
+          if-no-files-found: error
+
+      - name: Push to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::NUGET_API_KEY secret is not configured."
+            exit 1
+          fi
+
+          dotnet nuget push "$ARTIFACTS_DIR/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

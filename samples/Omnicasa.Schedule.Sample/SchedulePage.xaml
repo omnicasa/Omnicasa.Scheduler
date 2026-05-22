@@ -22,15 +22,27 @@
                    FontAttributes="Bold"
                    VerticalOptions="Center" />
 
-            <HorizontalStackLayout Grid.Column="1"
-                                   Spacing="6"
-                                   VerticalOptions="Center">
+            <VerticalStackLayout  Grid.Column="1">
+              <HorizontalStackLayout
+                Spacing="6"
+                VerticalOptions="Center">
                 <Label Text="Persons"
                        VerticalOptions="Center"
                        FontSize="13" />
                 <Switch IsToggled="{Binding ShowPersons}"
                         VerticalOptions="Center" />
-            </HorizontalStackLayout>
+              </HorizontalStackLayout>
+              <HorizontalStackLayout
+                Spacing="6"
+                VerticalOptions="Center">
+                <Label Text="Draft"
+                       VerticalOptions="Center"
+                       FontSize="13" />
+                <Switch IsToggled="{Binding ShowTyping}"
+                        VerticalOptions="Center" />
+              </HorizontalStackLayout>
+            </VerticalStackLayout>
+
 
             <Picker Grid.Column="2"
                     Title="Days"
@@ -56,6 +68,7 @@
                             ViewMode="{Binding ViewMode}"
                             Persons="{Binding Persons}"
                             ItemsSource="{Binding Items}"
+                            TypingItem="{Binding TypingItem}"
                             Tapped="OnTapped"
                             LongTapped="OnLongTapped"
                             ItemTapped="OnItemTapped"

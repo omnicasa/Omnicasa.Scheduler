@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Globalization;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
@@ -111,6 +112,15 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnItemsSourceChanged(o as IEnumerable, n as IEnumerable));
 
+    /// <summary>Bindable property for <see cref="TypingItem"/>.</summary>
+    public static readonly BindableProperty TypingItemProperty =
+        BindableProperty.Create(
+            nameof(TypingItem),
+            typeof(ITypingScheduleItem),
+            typeof(ScheduleView),
+            null,
+            propertyChanged: (b, o, n) => ((ScheduleView)b).OnTypingItemChanged(o as ITypingScheduleItem, n as ITypingScheduleItem));
+
     private readonly ScheduleViewTheme fallbackTheme = new ScheduleViewTheme();
 
     private readonly ScheduleRenderContext context = new ScheduleRenderContext();
@@ -140,6 +150,14 @@ public class ScheduleView : ContentView
     private double pinchAnchorHours = -1;
 
     private double pinchAnchorViewportY;
+
+    private TypingDragMode typingDragMode = TypingDragMode.None;
+
+    private DateTime typingOriginStart;
+
+    private DateTime typingOriginEnd;
+
+    private PointF typingOriginPoint;
 
     /// <summary>Initializes a new instance of the <see cref="ScheduleView"/> class.</summary>
     public ScheduleView()
@@ -260,6 +278,43 @@ public class ScheduleView : ContentView
         set => SetValue(ItemsSourceProperty, value);
     }
 
+    /// <summary>
+    /// Optional draft item shown as a highlighted shadowed overlay. Touch on its body moves it,
+    /// touch on its top/bottom edge resizes it. <see cref="ITypingScheduleItem.Start"/>,
+    /// <see cref="ITypingScheduleItem.End"/>, and <see cref="ITypingScheduleItem.PersonId"/> are
+    /// mutated in place during the gesture.
+    /// </summary>
+    public ITypingScheduleItem? TypingItem
+    {
+        get => (ITypingScheduleItem?)GetValue(TypingItemProperty);
+        set => SetValue(TypingItemProperty, value);
+    }
+
+    private enum TypingDragMode
+    {
+        None,
+        Move,
+        ResizeStart,
+        ResizeEnd,
+    }
+
+    private static DateTime ClampToDay(DateTime t, DateTime day, TimeSpan duration)
+    {
+        var start = day.Date;
+        var end = start.AddDays(1) - duration;
+        if (t < start)
+        {
+            return start;
+        }
+
+        if (t > end)
+        {
+            return end;
+        }
+
+        return t;
+    }
+
     private static string Initials(string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -297,6 +352,35 @@ public class ScheduleView : ContentView
     }
 
     private void OnItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Rebuild();
+
+    private void OnTypingItemChanged(ITypingScheduleItem? oldValue, ITypingScheduleItem? newValue)
+    {
+        if (oldValue is not null)
+        {
+            oldValue.PropertyChanged -= OnTypingItemPropertyChanged;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.PropertyChanged += OnTypingItemPropertyChanged;
+        }
+
+        context.TypingItem = newValue;
+        bodyCanvas.Invalidate();
+    }
+
+    private void OnTypingItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ITypingScheduleItem.Start)
+            || e.PropertyName == nameof(ITypingScheduleItem.End)
+            || e.PropertyName == nameof(ITypingScheduleItem.PersonId)
+            || e.PropertyName == nameof(ITypingScheduleItem.Title)
+            || e.PropertyName == nameof(ITypingScheduleItem.Color)
+            || string.IsNullOrEmpty(e.PropertyName))
+        {
+            bodyCanvas.Invalidate();
+        }
+    }
 
     private void Rebuild()
     {
@@ -367,6 +451,7 @@ public class ScheduleView : ContentView
                         HeaderSecondary = Initials(person.Name),
                         Accent = person.Color,
                         IsToday = isToday,
+                        PersonId = person.Id,
                         Items = ScheduleLayout.Layout(forPerson),
                     };
                 }
@@ -400,7 +485,16 @@ public class ScheduleView : ContentView
             return;
         }
 
-        pointerDownPoint = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+        var p = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+
+        if (TryBeginTypingDrag(p))
+        {
+            longPressTimer.Stop();
+            pointerDown = false;
+            return;
+        }
+
+        pointerDownPoint = p;
         pointerDown = true;
         longTapFired = false;
         moveCanceledTap = false;
@@ -408,13 +502,49 @@ public class ScheduleView : ContentView
         longPressTimer.Start();
     }
 
-    private void OnPointerMoved(object? sender, PointerEventArgs e)
+    private bool TryBeginTypingDrag(PointF p)
     {
-        if (!pointerDown)
+        var typing = TypingItem;
+        if (typing is null)
         {
-            return;
+            return false;
         }
 
+        var rect = bodyDrawable.TypingRect;
+        if (rect is null || !rect.Value.Contains(p))
+        {
+            return false;
+        }
+
+        const float cornerZone = 24f;
+        float relX = p.X - rect.Value.X;
+        float relY = p.Y - rect.Value.Y;
+        bool inTopLeft = relX < cornerZone && relY < cornerZone;
+        bool inBottomRight = (rect.Value.Width - relX) < cornerZone
+            && (rect.Value.Height - relY) < cornerZone;
+
+        if (inTopLeft)
+        {
+            typingDragMode = TypingDragMode.ResizeStart;
+        }
+        else if (inBottomRight)
+        {
+            typingDragMode = TypingDragMode.ResizeEnd;
+        }
+        else
+        {
+            typingDragMode = TypingDragMode.Move;
+        }
+
+        typingOriginPoint = p;
+        typingOriginStart = typing.Start;
+        typingOriginEnd = typing.End;
+        bodyScroll.Orientation = ScrollOrientation.Neither;
+        return true;
+    }
+
+    private void OnPointerMoved(object? sender, PointerEventArgs e)
+    {
         var pt = e.GetPosition(bodyCanvas);
         if (pt is null)
         {
@@ -422,6 +552,18 @@ public class ScheduleView : ContentView
         }
 
         var p = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+
+        if (typingDragMode != TypingDragMode.None)
+        {
+            UpdateTypingDrag(p);
+            return;
+        }
+
+        if (!pointerDown)
+        {
+            return;
+        }
+
         if (Math.Abs(p.X - pointerDownPoint.X) > LongPressMoveThreshold
             || Math.Abs(p.Y - pointerDownPoint.Y) > LongPressMoveThreshold)
         {
@@ -430,8 +572,116 @@ public class ScheduleView : ContentView
         }
     }
 
+    private void UpdateTypingDrag(PointF p)
+    {
+        var typing = TypingItem;
+        if (typing is null)
+        {
+            return;
+        }
+
+        double dy = p.Y - typingOriginPoint.Y;
+        double snappedMinutes = Math.Round(dy / HourHeight * 60.0 / 15.0) * 15.0;
+        var duration = typingOriginEnd - typingOriginStart;
+
+        switch (typingDragMode)
+        {
+            case TypingDragMode.Move:
+            {
+                int targetCol = HitTestColumn(p.X);
+                DateTime baseDay = targetCol >= 0
+                    ? context.Columns[targetCol].DayStart
+                    : typingOriginStart.Date;
+                var tentative = baseDay.Add(typingOriginStart.TimeOfDay).AddMinutes(snappedMinutes);
+                var clamped = ClampToDay(tentative, baseDay, duration);
+                typing.Start = clamped;
+                typing.End = clamped + duration;
+
+                if (targetCol >= 0)
+                {
+                    var col = context.Columns[targetCol];
+                    if (!string.Equals(typing.PersonId, col.PersonId, StringComparison.Ordinal)
+                        && col.PersonId is not null)
+                    {
+                        typing.PersonId = col.PersonId;
+                    }
+                }
+
+                break;
+            }
+
+            case TypingDragMode.ResizeStart:
+            {
+                var newStart = typingOriginStart.AddMinutes(snappedMinutes);
+                var dayStart = typingOriginStart.Date;
+                if (newStart < dayStart)
+                {
+                    newStart = dayStart;
+                }
+
+                if (newStart > typingOriginEnd.AddMinutes(-15))
+                {
+                    newStart = typingOriginEnd.AddMinutes(-15);
+                }
+
+                typing.Start = newStart;
+                break;
+            }
+
+            case TypingDragMode.ResizeEnd:
+            {
+                var newEnd = typingOriginEnd.AddMinutes(snappedMinutes);
+                var minEnd = typingOriginStart.AddMinutes(15);
+                if (newEnd < minEnd)
+                {
+                    newEnd = minEnd;
+                }
+
+                var dayEnd = typingOriginStart.Date.AddDays(1);
+                if (newEnd > dayEnd)
+                {
+                    newEnd = dayEnd;
+                }
+
+                typing.End = newEnd;
+                break;
+            }
+        }
+    }
+
+    private int HitTestColumn(float x)
+    {
+        int n = context.Columns.Count;
+        if (n == 0)
+        {
+            return -1;
+        }
+
+        float railWidth = context.TimeRailWidth;
+        float width = (float)bodyCanvas.Width;
+        if (width <= railWidth || x < railWidth)
+        {
+            return -1;
+        }
+
+        float colW = (width - railWidth) / n;
+        if (colW <= 0)
+        {
+            return -1;
+        }
+
+        int idx = (int)Math.Floor((x - railWidth) / colW);
+        return Math.Clamp(idx, 0, n - 1);
+    }
+
     private void OnPointerReleased(object? sender, PointerEventArgs e)
     {
+        if (typingDragMode != TypingDragMode.None)
+        {
+            EndTypingDrag();
+            return;
+        }
+
         if (!pointerDown)
         {
             return;
@@ -450,7 +700,18 @@ public class ScheduleView : ContentView
 
     private void OnPointerCanceled(object? sender, PointerEventArgs e)
     {
+        if (typingDragMode != TypingDragMode.None)
+        {
+            EndTypingDrag();
+        }
+
         CancelPendingLongPress();
+    }
+
+    private void EndTypingDrag()
+    {
+        typingDragMode = TypingDragMode.None;
+        bodyScroll.Orientation = ScrollOrientation.Vertical;
     }
 
     private void OnLongPressTick(object? sender, EventArgs e)

@@ -98,7 +98,7 @@ public class ScheduleView : ContentView
     public static readonly BindableProperty PersonsProperty =
         BindableProperty.Create(
             nameof(Persons),
-            typeof(IList<Person>),
+            typeof(IList<IPerson>),
             typeof(ScheduleView),
             null,
             propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild());
@@ -265,9 +265,9 @@ public class ScheduleView : ContentView
     }
 
     /// <summary>Optional persons. When non-empty, each day splits into one sub-column per person.</summary>
-    public IList<Person>? Persons
+    public IList<IPerson>? Persons
     {
-        get => (IList<Person>?)GetValue(PersonsProperty);
+        get => (IList<IPerson>?)GetValue(PersonsProperty);
         set => SetValue(PersonsProperty, value);
     }
 

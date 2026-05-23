@@ -26,7 +26,7 @@ public interface IScheduleItem
     /// <summary>Optional block color; falls back to the person's color or the theme accent.</summary>
     Color? Color { get; }
 
-    /// <summary>Optional <see cref="Person.Id"/> link. Required when persons are bound.</summary>
+    /// <summary>Optional <see cref="IPerson.Id"/> link. Required when persons are bound.</summary>
     string? PersonId { get; }
 
     /// <summary>Optional free-form notes.</summary>

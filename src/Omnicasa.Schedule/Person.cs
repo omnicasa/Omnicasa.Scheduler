@@ -3,8 +3,8 @@ using Microsoft.Maui.Graphics;
 
 namespace Omnicasa.Schedule;
 
-/// <summary>Represents a person / resource whose appointments occupy a dedicated column.</summary>
-public class Person : BindableObject
+/// <summary>Default <see cref="IPerson"/> implementation; a bindable person / resource whose appointments occupy a dedicated column.</summary>
+public class Person : BindableObject, IPerson
 {
     /// <summary>Bindable property for <see cref="Id"/>.</summary>
     public static readonly BindableProperty IdProperty =

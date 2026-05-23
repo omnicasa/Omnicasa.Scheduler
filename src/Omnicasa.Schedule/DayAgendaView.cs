@@ -72,7 +72,7 @@ public class DayAgendaView : ContentView
     public static readonly BindableProperty PersonsProperty =
         BindableProperty.Create(
             nameof(Persons),
-            typeof(IList<Person>),
+            typeof(IList<IPerson>),
             typeof(DayAgendaView),
             null,
             propertyChanged: (b, _, _) => ((DayAgendaView)b).OnPersonsChangedInternal());
@@ -183,9 +183,9 @@ public class DayAgendaView : ContentView
     }
 
     /// <summary>Gets or sets the list of persons; when non-empty, each page shows a single day with one column per person.</summary>
-    public IList<Person>? Persons
+    public IList<IPerson>? Persons
     {
-        get => (IList<Person>?)GetValue(PersonsProperty);
+        get => (IList<IPerson>?)GetValue(PersonsProperty);
         set => SetValue(PersonsProperty, value);
     }
 

@@ -9,7 +9,7 @@ namespace Omnicasa.Schedule.Sample;
 /// <summary>View-model backing <see cref="SchedulePage"/>. Exposes every <see cref="ScheduleView"/> binding target.</summary>
 public class SchedulePageViewModel : INotifyPropertyChanged
 {
-    private static readonly IList<Person> AllPersonsList = new List<Person>
+    private static readonly IList<IPerson> AllPersonsList = new List<IPerson>
     {
         new Person { Id = "p1", Name = "Alice Murphy", Color = Color.FromArgb("#007AFF") },
         new Person { Id = "p2", Name = "Bob Reyes", Color = Color.FromArgb("#34C759") },
@@ -24,7 +24,7 @@ public class SchedulePageViewModel : INotifyPropertyChanged
 
     private bool showPersons;
 
-    private IList<Person>? persons;
+    private IList<IPerson>? persons;
 
     private bool showTyping;
 
@@ -100,7 +100,7 @@ public class SchedulePageViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Current persons list passed to <see cref="ScheduleView.Persons"/>; null when persons mode is off.</summary>
-    public IList<Person>? Persons
+    public IList<IPerson>? Persons
     {
         get => persons;
         private set => Set(ref persons, value);

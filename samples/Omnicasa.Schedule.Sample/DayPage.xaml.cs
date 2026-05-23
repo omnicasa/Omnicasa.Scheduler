@@ -26,7 +26,7 @@ public partial class DayPage : ContentPage
         ModePicker.SelectedIndex = DaysPerPageToIndex(Day.DaysPerPage);
     }
 
-    private static readonly IList<Person> DemoPersons = new List<Person>
+    private static readonly IList<IPerson> DemoPersons = new List<IPerson>
     {
         new Person { Id = "p1", Name = "Alice Murphy", Color = Color.FromArgb("#007AFF") },
         new Person { Id = "p2", Name = "Bob Reyes", Color = Color.FromArgb("#34C759") },

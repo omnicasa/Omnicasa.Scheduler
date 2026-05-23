@@ -27,8 +27,17 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install MAUI workloads
-        run: dotnet workload install maui --skip-sign-check
+      - name: Setup Xcode (latest stable on runner)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install MAUI workloads (pin to iOS 18 / Xcode 16-compatible set)
+        # `dotnet workload install maui` otherwise upgrades to the latest set
+        # (currently 9.0.31x), which bundles the iOS 26.5 SDK and requires
+        # Xcode 26+. Pin to a 9.0.300-era set whose iOS manifest still targets
+        # iOS 18.x, matching what's available on `macos-latest` runners.
+        run: dotnet workload install maui --version 9.0.300 --skip-sign-check
 
       - name: Compute version (yyyy.MMdd.<run_number>)
         id: ver
@@ -36,7 +45,7 @@ jobs:
           DATE=$(date -u +'%Y.%m%d')
           VERSION="${DATE}.${{ github.run_number }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Computed package version: $VERSION"
+          echo "Computed package version: $VERSION (NuGet will display this as a normalized form, e.g. leading zero in the 'MMdd' segment is stripped — sort order is preserved)."
 
       - name: Restore
         run: dotnet restore "$LIBRARY_PROJECT"

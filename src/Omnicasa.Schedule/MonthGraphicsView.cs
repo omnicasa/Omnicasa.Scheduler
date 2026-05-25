@@ -51,6 +51,39 @@ public class MonthGraphicsView : GraphicsView
         }
     }
 
+    /// <summary>Gets or sets a value indicating whether to render compactly (small year-grid look). Set false for a full-size month.</summary>
+    public bool Compact
+    {
+        get => drawable.Compact;
+        set
+        {
+            drawable.Compact = value;
+            Invalidate();
+        }
+    }
+
+    /// <summary>Gets or sets a value indicating whether the drawable paints its own abbreviated month header.</summary>
+    public bool ShowHeader
+    {
+        get => drawable.ShowHeader;
+        set
+        {
+            drawable.ShowHeader = value;
+            Invalidate();
+        }
+    }
+
+    /// <summary>Gets or sets the painter for the month grid; defaults to the built-in look.</summary>
+    public MonthRenderer Renderer
+    {
+        get => drawable.Renderer;
+        set
+        {
+            drawable.Renderer = value ?? MonthRenderer.Default;
+            Invalidate();
+        }
+    }
+
     /// <summary>Sets the year and month displayed by the view.</summary>
     /// <param name="year">Four-digit year.</param>
     /// <param name="month">Month number 1–12.</param>

@@ -8,10 +8,11 @@ Smooth calendar and agenda controls for .NET MAUI (iOS + Android), inspired by t
 
 📦 **NuGet:** <https://www.nuget.org/packages/Omnicasa.Schedule>
 
-The package ships three drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
+The package ships four drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
 
 - **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
 - **`DayAgendaView`** — day / 3-day / 5-day / week agenda with horizontal swipe between pages, pinch-to-zoom on the time rail, and tap / drag / resize on appointment blocks.
+- **`MonthCalendarView`** — full-size months stacked vertically with continuous scroll (one month per screen), event-density dots, and per-day tap. Pairs with the year view for a year → month → day drill-down.
 - **`YearCalendarView`** — scrollable year-at-a-glance grid with 12 months per year and event-density dots.
 
 ## Screenshots
@@ -147,6 +148,18 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `AppointmentTapped` event | — | Tap an appointment block. |
 | `AppointmentChanged` event | — | Fired after a drag or resize commit. |
 
+### `MonthCalendarView`
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `AppointmentSource` | `null` | Source used to compute per-day event-density dots. |
+| `MinYear` / `MaxYear` | today ± 5 years | Inclusive range of months rendered. |
+| `InitialDate` | today | Month scrolled into view on first load. |
+| `Theme` | built-in | `ScheduleTheme` (colors + optional fonts). |
+| `Renderer` | built-in | `MonthRenderer` — see [Custom rendering](#custom-rendering). |
+| `DayTapped` event | — | Fires with a `DateOnly` when a day cell is tapped. |
+| `ScrollToMonth(year, month, animated)` | — | Programmatically scroll. |
+
 ### `YearCalendarView`
 
 | Property | Default | Description |
@@ -154,7 +167,8 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `AppointmentSource` | `null` | Source used to compute per-day event-density dots. |
 | `MinYear` / `MaxYear` | today ± 5 years | Inclusive range of years rendered. |
 | `InitialYear` | current year | Year scrolled into view on first load. |
-| `Theme` | built-in | `ScheduleTheme` color palette. |
+| `Theme` | built-in | `ScheduleTheme` (colors + optional fonts). |
+| `Renderer` | built-in | `MonthRenderer` — see [Custom rendering](#custom-rendering). |
 | `DayTapped` event | — | Fires with a `DateOnly` when a day cell is tapped. |
 | `ScrollToYear(year, animated)` | — | Programmatically scroll. |
 
@@ -173,9 +187,23 @@ Day.Theme = new ScheduleTheme
 };
 ```
 
+The calendar views (`MonthCalendarView` / `YearCalendarView`) also read **font** and **size** from `ScheduleTheme`. Font sizes are nullable — leave them `null` to auto-fit each cell, or set a value to pin it:
+
+```csharp
+Month.Theme = new ScheduleTheme
+{
+    Accent             = Colors.DodgerBlue,
+    Today              = Colors.DodgerBlue,
+    FontFamily         = "OpenSans-Regular",   // null = platform default
+    MonthHeaderFontSize = 24,                   // null = auto-fit
+    WeekdayFontSize     = 14,
+    DayNumberFontSize   = 18,
+};
+```
+
 ## Custom rendering
 
-Theming only changes colors and fonts. When you need **different appointment types to draw differently** (or want to restyle headers, the hour grid, the today marker, or the draft block), override the renderer. Both `ScheduleView` and `DayAgendaView` expose a `Renderer` property; subclass the matching renderer base and override only the primitives you need — every other primitive keeps the built-in look.
+Theming only changes colors and fonts. When you need **different appointment types to draw differently** (or want to restyle headers, the hour grid, the today marker, the draft block, or day cells), override the renderer. `ScheduleView`, `DayAgendaView`, and the calendar views (`MonthCalendarView` / `YearCalendarView`) each expose a `Renderer` property; subclass the matching renderer base and override only the primitives you need — every other primitive keeps the built-in look.
 
 The most common case is per-type appointment drawing: override `DrawAppointment`, switch on your concrete model type, and call `base` for the default look.
 
@@ -212,15 +240,37 @@ public sealed class MyRenderer : ScheduleViewRenderer
 <sched:ScheduleView Renderer="{Binding MyRenderer}" ItemsSource="{Binding Items}" />
 ```
 
+The calendar views use the same pattern via `MonthRenderer`. Override `DrawDay` (the common case), `DrawWeekday`, or `DrawHeader`:
+
+```csharp
+public sealed class MyMonthRenderer : MonthRenderer
+{
+    public override void DrawDay(MonthDayContext ctx)
+    {
+        if (ctx.Date.Day == 1)
+        {
+            // custom first-of-month look using ctx.Canvas / ctx.Rect / ctx.Theme / ctx.TextColor
+        }
+        else
+        {
+            base.DrawDay(ctx);   // built-in number + today highlight + density dot
+        }
+    }
+}
+
+// Month.Renderer = new MyMonthRenderer();  // also on YearCalendarView and MonthGraphicsView
+```
+
 Notes:
 
 - `DayAgendaView` works the same way via `DayAgendaRenderer`; its `DayAgendaAppointmentContext` also exposes `IsGhost` (the drag ghost), `ShowResizeHandle`, and `FontScale`.
+- `MonthDayContext` carries `Date`, `IsToday`, `EventCount`, the resolved `TextColor` / `FontSize` / `Font`, and `Compact`.
 - Geometry and hit-testing stay inside the controls, so custom drawing can never desync tap / drag / resize regions — you only control the pixels inside the supplied `Rect`.
-- Leaving `Renderer` unset uses the shared default (`ScheduleViewRenderer.Default` / `DayAgendaRenderer.Default`).
+- Leaving `Renderer` unset uses the shared default (`ScheduleViewRenderer.Default` / `DayAgendaRenderer.Default` / `MonthRenderer.Default`).
 
 ## Sample app
 
-The repo contains a runnable sample under `samples/Omnicasa.Schedule.Sample` that wires the controls to an in-memory source of randomized appointments and navigates from year → day on tap.
+The repo contains a runnable sample under `samples/Omnicasa.Schedule.Sample` that wires the controls to an in-memory source of randomized appointments and drills down year → month → day with an animated zoom on tap.
 
 ```bash
 # iOS

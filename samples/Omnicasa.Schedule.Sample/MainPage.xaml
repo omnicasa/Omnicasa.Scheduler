@@ -3,16 +3,52 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:sched="clr-namespace:Omnicasa.Schedule;assembly=Omnicasa.Schedule"
              x:Class="Omnicasa.Schedule.Sample.MainPage"
-             Title="Year">
+             Title="Calendar">
 
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Schedule" Clicked="OnOpenSchedule" />
     </ContentPage.ToolbarItems>
 
-    <sched:YearCalendarView x:Name="Year"
-                            MinYear="2020"
-                            MaxYear="2032"
-                            InitialYear="2026"
-                            DayTapped="OnDayTapped" />
+    <Grid>
+        <!-- Year layer (bottom) -->
+        <sched:YearCalendarView x:Name="Year"
+                                MinYear="2020"
+                                MaxYear="2032"
+                                InitialYear="2026"
+                                DayTapped="OnYearDayTapped" />
+
+        <!-- Month layer (full-size scrollable months) -->
+        <sched:MonthCalendarView x:Name="Month"
+                                 MinYear="2020"
+                                 MaxYear="2032"
+                                 IsVisible="False"
+                                 Opacity="0"
+                                 DayTapped="OnMonthDayTapped" />
+
+        <!-- Day layer (agenda for the chosen day) -->
+        <Grid x:Name="DayLayer"
+              IsVisible="False"
+              Opacity="0"
+              RowDefinitions="Auto,*">
+            <Label x:Name="DayHeader"
+                   Grid.Row="0"
+                   FontSize="18"
+                   FontAttributes="Bold"
+                   HorizontalTextAlignment="Center"
+                   Padding="56,10,16,10" />
+            <sched:DayAgendaView x:Name="Day" Grid.Row="1" />
+        </Grid>
+
+        <!-- Back affordance, shown when drilled in -->
+        <Button x:Name="BackButton"
+                Text="‹ Back"
+                Clicked="OnBackClicked"
+                IsVisible="False"
+                HorizontalOptions="Start"
+                VerticalOptions="Start"
+                Margin="8,6"
+                Padding="12,4"
+                FontSize="15" />
+    </Grid>
 
 </ContentPage>

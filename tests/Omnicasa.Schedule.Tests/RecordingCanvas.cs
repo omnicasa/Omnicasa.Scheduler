@@ -31,6 +31,10 @@ internal sealed class RecordingCanvas : ICanvas
 
     public Color? LastFillColor { get; private set; }
 
+    public List<Color> FillColors { get; } = new List<Color>();
+
+    public List<float> FontSizes { get; } = new List<float>();
+
     // ---- Mutable state properties (set-only on the interface) ----
     public float DisplayScale { get; set; } = 1f;
 
@@ -48,13 +52,20 @@ internal sealed class RecordingCanvas : ICanvas
 
     public float StrokeDashOffset { set { } }
 
-    public Color FillColor { set => LastFillColor = value; }
+    public Color FillColor
+    {
+        set
+        {
+            LastFillColor = value;
+            FillColors.Add(value);
+        }
+    }
 
     public Color FontColor { set { } }
 
     public IFont Font { set { } }
 
-    public float FontSize { set { } }
+    public float FontSize { set => FontSizes.Add(value); }
 
     public float Alpha { set { } }
 

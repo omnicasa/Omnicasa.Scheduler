@@ -35,6 +35,25 @@ public sealed class ScheduleTappedEventArgs : EventArgs
     public DateTime When { get; }
 }
 
+/// <summary>Event payload for an action chosen from an appointment's long-press menu.</summary>
+public sealed class ScheduleItemActionEventArgs : EventArgs
+{
+    /// <summary>Initializes a new instance of the <see cref="ScheduleItemActionEventArgs"/> class.</summary>
+    /// <param name="item">The appointment the menu was shown for.</param>
+    /// <param name="action">The chosen action label.</param>
+    public ScheduleItemActionEventArgs(IScheduleItem item, string action)
+    {
+        Item = item;
+        Action = action;
+    }
+
+    /// <summary>Gets the appointment the menu was shown for.</summary>
+    public IScheduleItem Item { get; }
+
+    /// <summary>Gets the chosen action label (one of the strings returned by the actions provider).</summary>
+    public string Action { get; }
+}
+
 /// <summary>
 /// Minimal read-only schedule control. Renders a fixed [<see cref="StartDay"/>, <see cref="EndDay"/>]
 /// viewport (capped to <see cref="ViewMode"/> columns), optionally splitting each day into
@@ -184,6 +203,12 @@ public class ScheduleView : ContentView
 
     private PointF typingOriginPoint;
 
+#if IOS
+    private bool iosMenuAttached;
+
+    private object? menuPlatformState;
+#endif
+
     /// <summary>Initializes a new instance of the <see cref="ScheduleView"/> class.</summary>
     public ScheduleView()
     {
@@ -203,6 +228,12 @@ public class ScheduleView : ContentView
             Drawable = bodyDrawable,
             BackgroundColor = Colors.Transparent,
         };
+
+#if IOS
+        // The native iOS context menu is system-driven, so attach a UIContextMenuInteraction to the
+        // body's platform view once its handler exists.
+        bodyCanvas.HandlerChanged += OnBodyCanvasHandlerChanged;
+#endif
 
         var pointer = new PointerGestureRecognizer();
         pointer.PointerPressed += OnPointerPressed;
@@ -269,6 +300,17 @@ public class ScheduleView : ContentView
 
     /// <summary>Fired when the user long-presses an appointment block.</summary>
     public event EventHandler<ScheduleItemTappedEventArgs>? ItemLongTapped;
+
+    /// <summary>Fired when the user picks an action from an appointment's long-press menu.</summary>
+    public event EventHandler<ScheduleItemActionEventArgs>? ItemActionInvoked;
+
+    /// <summary>
+    /// Optional provider of long-press menu actions for an appointment. Return the action labels to
+    /// offer; an empty or absent list means no menu (long-press then falls back to
+    /// <see cref="ItemLongTapped"/>). On iOS the labels build a native context menu (UIMenu); on
+    /// Android a native <c>PopupMenu</c>. Selecting one raises <see cref="ItemActionInvoked"/>.
+    /// </summary>
+    public Func<IScheduleItem, IReadOnlyList<string>>? ItemActionsProvider { get; set; }
 
     /// <summary>First day rendered (inclusive).</summary>
     public DateTime StartDay
@@ -882,6 +924,66 @@ public class ScheduleView : ContentView
         bodyScroll.Orientation = ScrollOrientation.Vertical;
     }
 
+#if IOS
+    private void OnBodyCanvasHandlerChanged(object? sender, EventArgs e)
+    {
+        if (!iosMenuAttached && bodyCanvas.Handler?.PlatformView is UIKit.UIView view)
+        {
+            iosMenuAttached = true;
+            menuPlatformState = QuickActionMenu.AttachIos(view, this);
+        }
+    }
+#endif
+
+    /// <summary>Returns the appointment whose rendered rect contains the given body-canvas point, or null.</summary>
+    internal IScheduleItem? HitTestItem(PointF canvasPoint)
+        => HitTestItemRect(canvasPoint)?.Item;
+
+    /// <summary>Returns the appointment and its rendered rect at the given body-canvas point, or null.</summary>
+    internal (IScheduleItem Item, RectF Rect)? HitTestItemRect(PointF canvasPoint)
+    {
+        foreach (var (item, rect) in bodyDrawable.HitMap)
+        {
+            if (rect.Contains(canvasPoint))
+            {
+                return (item, rect);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Returns the action labels for an appointment (empty when no provider or no actions).</summary>
+    internal IReadOnlyList<string> GetItemActions(IScheduleItem item)
+        => ItemActionsProvider?.Invoke(item) ?? Array.Empty<string>();
+
+    /// <summary>Raises <see cref="ItemActionInvoked"/> for a chosen action.</summary>
+    internal void RaiseItemAction(IScheduleItem item, string action)
+        => ItemActionInvoked?.Invoke(this, new ScheduleItemActionEventArgs(item, action));
+
+    // Shows the native long-press menu for an appointment. Returns true when it handled the press
+    // (so the gesture's ItemLongTapped is suppressed). iOS uses a UIContextMenuInteraction wired up
+    // separately, so here we only claim the press when there are actions to show.
+    private bool TryShowItemMenu(IScheduleItem item, PointF point)
+    {
+#if IOS
+        _ = point;
+        return GetItemActions(item).Count > 0;
+#elif ANDROID
+        var actions = GetItemActions(item);
+        if (actions.Count == 0)
+        {
+            return false;
+        }
+
+        return QuickActionMenu.ShowAndroid(bodyCanvas, point, actions, label => RaiseItemAction(item, label));
+#else
+        _ = item;
+        _ = point;
+        return false;
+#endif
+    }
+
     private void OnLongPressTick(object? sender, EventArgs e)
     {
         longPressTimer.Stop();
@@ -911,7 +1013,10 @@ public class ScheduleView : ContentView
                 var args = new ScheduleItemTappedEventArgs(item);
                 if (longPress)
                 {
-                    ItemLongTapped?.Invoke(this, args);
+                    if (!TryShowItemMenu(item, point))
+                    {
+                        ItemLongTapped?.Invoke(this, args);
+                    }
                 }
                 else
                 {

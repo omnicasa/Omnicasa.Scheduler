@@ -37,6 +37,22 @@ public sealed class ScheduleTheme : BindableObject
     public static readonly BindableProperty SundayProperty =
         BindableProperty.Create(nameof(Sunday), typeof(Color), typeof(ScheduleTheme), Color.FromArgb("#8E8E93"));
 
+    /// <summary>Bindable property for <see cref="FontFamily"/>.</summary>
+    public static readonly BindableProperty FontFamilyProperty =
+        BindableProperty.Create(nameof(FontFamily), typeof(string), typeof(ScheduleTheme), null);
+
+    /// <summary>Bindable property for <see cref="MonthHeaderFontSize"/>.</summary>
+    public static readonly BindableProperty MonthHeaderFontSizeProperty =
+        BindableProperty.Create(nameof(MonthHeaderFontSize), typeof(double?), typeof(ScheduleTheme), null);
+
+    /// <summary>Bindable property for <see cref="WeekdayFontSize"/>.</summary>
+    public static readonly BindableProperty WeekdayFontSizeProperty =
+        BindableProperty.Create(nameof(WeekdayFontSize), typeof(double?), typeof(ScheduleTheme), null);
+
+    /// <summary>Bindable property for <see cref="DayNumberFontSize"/>.</summary>
+    public static readonly BindableProperty DayNumberFontSizeProperty =
+        BindableProperty.Create(nameof(DayNumberFontSize), typeof(double?), typeof(ScheduleTheme), null);
+
     /// <summary>Gets or sets the background color of the calendar surface.</summary>
     public Color Background
     {
@@ -91,5 +107,33 @@ public sealed class ScheduleTheme : BindableObject
     {
         get => (Color)GetValue(SundayProperty);
         set => SetValue(SundayProperty, value);
+    }
+
+    /// <summary>Gets or sets the font family used for calendar text. Null uses the platform default.</summary>
+    public string? FontFamily
+    {
+        get => (string?)GetValue(FontFamilyProperty);
+        set => SetValue(FontFamilyProperty, value);
+    }
+
+    /// <summary>Gets or sets the month header font size. Null auto-fits to the cell.</summary>
+    public double? MonthHeaderFontSize
+    {
+        get => (double?)GetValue(MonthHeaderFontSizeProperty);
+        set => SetValue(MonthHeaderFontSizeProperty, value);
+    }
+
+    /// <summary>Gets or sets the weekday-letter font size. Null auto-fits to the cell.</summary>
+    public double? WeekdayFontSize
+    {
+        get => (double?)GetValue(WeekdayFontSizeProperty);
+        set => SetValue(WeekdayFontSizeProperty, value);
+    }
+
+    /// <summary>Gets or sets the day-number font size. Null auto-fits to the cell.</summary>
+    public double? DayNumberFontSize
+    {
+        get => (double?)GetValue(DayNumberFontSizeProperty);
+        set => SetValue(DayNumberFontSizeProperty, value);
     }
 }

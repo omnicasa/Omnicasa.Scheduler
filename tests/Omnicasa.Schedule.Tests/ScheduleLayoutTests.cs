@@ -101,4 +101,71 @@ public class ScheduleLayoutTests
         Assert.Equal("early", result[0].Item.Id);
         Assert.Equal("late", result[1].Item.Id);
     }
+
+    [Fact]
+    public void Layout_OnlyAllDayItems_ReturnsEmpty()
+    {
+        var result = ScheduleLayout.Layout(new IScheduleItem[] { Item(0, 24, allDay: true), Item(9, 10, allDay: true) });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void Layout_ContainedItems_ReuseFreedColumn()
+    {
+        // A spans the whole window; B and C are short, sequential, and both nest inside A but
+        // don't overlap each other — so C should reuse the column B vacated. Group width stays 2.
+        var a = new TestScheduleItem { Id = "a", Start = Day.AddHours(9), End = Day.AddHours(17) };
+        var b = new TestScheduleItem { Id = "b", Start = Day.AddHours(10), End = Day.AddHours(11) };
+        var c = new TestScheduleItem { Id = "c", Start = Day.AddHours(12), End = Day.AddHours(13) };
+
+        var result = ScheduleLayout.Layout(new IScheduleItem[] { a, b, c });
+
+        Assert.All(result, r => Assert.Equal(2, r.ColumnsInGroup));
+        Assert.Equal(0, result.Single(r => r.Item.Id == "a").Column);
+        Assert.Equal(1, result.Single(r => r.Item.Id == "b").Column);
+        Assert.Equal(1, result.Single(r => r.Item.Id == "c").Column);
+    }
+
+    [Fact]
+    public void Layout_SameStartDifferentEnd_OrdersShorterFirst()
+    {
+        var longer = new TestScheduleItem { Id = "long", Start = Day.AddHours(9), End = Day.AddHours(11) };
+        var shorter = new TestScheduleItem { Id = "short", Start = Day.AddHours(9), End = Day.AddHours(10) };
+
+        var result = ScheduleLayout.Layout(new IScheduleItem[] { longer, shorter });
+
+        // Sorted by start, then end: shorter comes first and takes column 0.
+        Assert.Equal("short", result[0].Item.Id);
+        Assert.Equal(0, result[0].Column);
+        Assert.All(result, r => Assert.Equal(2, r.ColumnsInGroup));
+    }
+
+    [Fact]
+    public void Layout_SeparateOverlapGroups_AreIndependent()
+    {
+        // Group 1: two overlapping in the morning. Group 2: one in the afternoon.
+        var a = new TestScheduleItem { Id = "a", Start = Day.AddHours(9), End = Day.AddHours(10).AddMinutes(30) };
+        var b = new TestScheduleItem { Id = "b", Start = Day.AddHours(10), End = Day.AddHours(11) };
+        var c = new TestScheduleItem { Id = "c", Start = Day.AddHours(15), End = Day.AddHours(16) };
+
+        var result = ScheduleLayout.Layout(new IScheduleItem[] { a, b, c });
+
+        Assert.Equal(2, result.Single(r => r.Item.Id == "a").ColumnsInGroup);
+        Assert.Equal(2, result.Single(r => r.Item.Id == "b").ColumnsInGroup);
+        Assert.Equal(1, result.Single(r => r.Item.Id == "c").ColumnsInGroup);
+    }
+
+    [Fact]
+    public void Layout_PreservesEveryNonAllDayItem()
+    {
+        var items = Enumerable.Range(0, 10)
+            .Select(i => (IScheduleItem)Item(i, i + 1, id: $"i{i}"))
+            .ToArray();
+
+        var result = ScheduleLayout.Layout(items);
+
+        Assert.Equal(10, result.Count);
+        Assert.Equal(items.Select(i => i.Id).OrderBy(x => x), result.Select(r => r.Item.Id).OrderBy(x => x));
+    }
 }

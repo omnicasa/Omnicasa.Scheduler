@@ -63,6 +63,7 @@
         </Grid>
 
         <sched:ScheduleView Grid.Row="1"
+                            x:Name="Schedule"
                             StartDay="{Binding StartDay}"
                             EndDay="{Binding EndDay}"
                             ViewMode="{Binding ViewMode}"

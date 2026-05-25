@@ -85,6 +85,16 @@ public class ScheduleView : ContentView
             propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
             coerceValue: (_, v) => Math.Clamp((double)v, 24.0, 200.0));
 
+    /// <summary>Bindable property for <see cref="VerticalOffset"/>.</summary>
+    public static readonly BindableProperty VerticalOffsetProperty =
+        BindableProperty.Create(
+            nameof(VerticalOffset),
+            typeof(double),
+            typeof(ScheduleView),
+            0.0,
+            defaultBindingMode: BindingMode.TwoWay,
+            propertyChanged: (b, _, n) => ((ScheduleView)b).ApplyVerticalOffset((double)n));
+
     /// <summary>Bindable property for <see cref="Theme"/>.</summary>
     public static readonly BindableProperty ThemeProperty =
         BindableProperty.Create(
@@ -154,6 +164,10 @@ public class ScheduleView : ContentView
 
     private bool moveCanceledTap;
 
+    // Breaks the feedback loop between user scrolling (updates VerticalOffset) and a
+    // bound VerticalOffset (scrolls the view) so synced carousel pages don't fight.
+    private bool suppressOffsetSync;
+
     private double pinchBase = 60;
 
     private double pinchScale = 1.0;
@@ -206,7 +220,11 @@ public class ScheduleView : ContentView
             Content = bodyCanvas,
             Orientation = ScrollOrientation.Vertical,
         };
-        bodyScroll.Scrolled += (_, _) => CancelPendingLongPress();
+        bodyScroll.Scrolled += (_, e) =>
+        {
+            CancelPendingLongPress();
+            OnBodyScrolled(e.ScrollY);
+        };
 
         longPressTimer = Dispatcher.CreateTimer();
         longPressTimer.Interval = TimeSpan.FromMilliseconds(LongPressMilliseconds);
@@ -227,7 +245,17 @@ public class ScheduleView : ContentView
         Grid.SetRow(bodyScroll, 1);
         Content = root;
 
-        Loaded += (_, _) => Rebuild();
+        Loaded += (_, _) =>
+        {
+            Rebuild();
+
+            // A freshly realized carousel page must jump to the shared offset once its
+            // content has a size; defer so the ScrollView has measured first.
+            if (VerticalOffset > 0)
+            {
+                Dispatcher.Dispatch(() => ApplyVerticalOffset(VerticalOffset));
+            }
+        };
     }
 
     /// <summary>Fired when the user taps an empty area of the body. Payload is the day + time of the tap.</summary>
@@ -268,6 +296,18 @@ public class ScheduleView : ContentView
     {
         get => (double)GetValue(HourHeightProperty);
         set => SetValue(HourHeightProperty, value);
+    }
+
+    /// <summary>
+    /// Current vertical scroll position of the body, in logical pixels (0 = midnight at the top).
+    /// Two-way: scrolling updates it, and setting it scrolls the view. Bind every page's
+    /// <see cref="VerticalOffset"/> to one shared value so a <c>CarouselView</c> of schedules keeps
+    /// the same boundary time when you swipe between pages (they share <see cref="HourHeight"/>).
+    /// </summary>
+    public double VerticalOffset
+    {
+        get => (double)GetValue(VerticalOffsetProperty);
+        set => SetValue(VerticalOffsetProperty, value);
     }
 
     /// <summary>Theme bundle (colors + font sizes). Defaults to a built-in light theme.</summary>
@@ -312,6 +352,28 @@ public class ScheduleView : ContentView
     {
         get => (ITypingScheduleItem?)GetValue(TypingItemProperty);
         set => SetValue(TypingItemProperty, value);
+    }
+
+    /// <summary>
+    /// Scrolls the body so <paramref name="timeOfDay"/> sits at the top edge — the library does the
+    /// time→pixel conversion for you (no need to multiply by <see cref="HourHeight"/>). Also updates
+    /// <see cref="VerticalOffset"/>, so views bound to the same offset follow along.
+    /// Example: <c>ScrollToTimeAsync(TimeSpan.FromHours(10))</c> or <c>ScrollToTimeAsync(new TimeSpan(16, 0, 0))</c>.
+    /// </summary>
+    /// <param name="timeOfDay">Target time of day to bring to the top of the viewport.</param>
+    /// <param name="animated">Whether to animate the scroll.</param>
+    /// <returns>A task that completes when the scroll finishes.</returns>
+    public Task ScrollToTimeAsync(TimeSpan timeOfDay, bool animated = false)
+    {
+        double offset = context.Scale.YForTime(timeOfDay);
+
+        // Publish the offset for synced siblings, but suppress our own (non-animated) re-scroll —
+        // we scroll explicitly below so the `animated` flag is honored.
+        suppressOffsetSync = true;
+        VerticalOffset = offset;
+        suppressOffsetSync = false;
+
+        return bodyScroll.ScrollToAsync(0, offset, animated);
     }
 
     private enum TypingDragMode
@@ -413,6 +475,38 @@ public class ScheduleView : ContentView
         headerDrawable.Renderer = renderer;
         headerCanvas.Invalidate();
         bodyCanvas.Invalidate();
+    }
+
+    // The user (or momentum) scrolled the body: publish the new offset so any view bound to the
+    // same VerticalOffset value follows along.
+    private void OnBodyScrolled(double scrollY)
+    {
+        if (suppressOffsetSync)
+        {
+            return;
+        }
+
+        suppressOffsetSync = true;
+        VerticalOffset = scrollY;
+        suppressOffsetSync = false;
+    }
+
+    // VerticalOffset changed (typically pushed in from a bound sibling page): scroll to match.
+    private void ApplyVerticalOffset(double offset)
+    {
+        if (suppressOffsetSync)
+        {
+            return;
+        }
+
+        if (Math.Abs(bodyScroll.ScrollY - offset) < 0.5)
+        {
+            return;
+        }
+
+        suppressOffsetSync = true;
+        _ = bodyScroll.ScrollToAsync(0, offset, false);
+        suppressOffsetSync = false;
     }
 
     private void Rebuild()

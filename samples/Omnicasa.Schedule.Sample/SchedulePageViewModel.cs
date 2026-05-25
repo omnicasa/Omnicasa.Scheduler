@@ -160,6 +160,50 @@ public class SchedulePageViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Creates (or repositions) the draft block at the given time — e.g. from a long-tap on empty
+    /// space. The time is snapped to the nearest 15 minutes and the draft spans one hour.
+    /// </summary>
+    /// <param name="when">Date and time of the long-tap (day + time-of-day).</param>
+    public void CreateDraftAt(DateTime when)
+    {
+        const int quarter = 15;
+        int minutes = (int)(Math.Round(when.TimeOfDay.TotalMinutes / quarter) * quarter);
+        var start = when.Date.AddMinutes(minutes);
+        var end = start.AddHours(1);
+        if (end.Date > start.Date)
+        {
+            end = start.Date.AddDays(1);
+        }
+
+        TypingItem = new TypingItemModel
+        {
+            Id = "draft",
+            Title = "New event",
+            Start = start,
+            End = end,
+            Color = Color.FromArgb("#5856D6"),
+        };
+
+        // Keep the "Draft" toggle in sync without re-running its setter (which resets the time).
+        if (!showTyping)
+        {
+            showTyping = true;
+            OnPropertyChanged(nameof(ShowTyping));
+        }
+    }
+
+    /// <summary>Clears the draft block (animates out via the bubble dismiss).</summary>
+    public void DismissDraft()
+    {
+        TypingItem = null;
+        if (showTyping)
+        {
+            showTyping = false;
+            OnPropertyChanged(nameof(ShowTyping));
+        }
+    }
+
     /// <summary>Raises <see cref="PropertyChanged"/> for the given property name.</summary>
     /// <param name="name">Property name; defaults to the caller.</param>
     protected void OnPropertyChanged([CallerMemberName] string? name = null)

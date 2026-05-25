@@ -451,8 +451,49 @@ public class ScheduleView : ContentView
             newValue.PropertyChanged += OnTypingItemPropertyChanged;
         }
 
-        context.TypingItem = newValue;
-        bodyCanvas.Invalidate();
+        if (newValue is not null)
+        {
+            // Show: pop the bubble in (spring overshoot) from nothing.
+            context.TypingItem = newValue;
+            if (oldValue is null)
+            {
+                AnimateTypingBubble(0, 1, Easing.SpringOut, onFinished: null);
+            }
+            else
+            {
+                context.TypingScale = 1f;
+                bodyCanvas.Invalidate();
+            }
+        }
+        else if (oldValue is not null)
+        {
+            // Dismiss: keep drawing the outgoing item while it shrinks away, then clear it.
+            AnimateTypingBubble(context.TypingScale, 0, Easing.CubicIn, onFinished: () =>
+            {
+                context.TypingItem = null;
+                context.TypingScale = 1f;
+                bodyCanvas.Invalidate();
+            });
+        }
+        else
+        {
+            bodyCanvas.Invalidate();
+        }
+    }
+
+    private void AnimateTypingBubble(double from, double to, Easing easing, Action? onFinished)
+    {
+        this.AbortAnimation("typing-bubble");
+        var animation = new Animation(
+            v =>
+            {
+                context.TypingScale = (float)v;
+                bodyCanvas.Invalidate();
+            },
+            from,
+            to,
+            easing);
+        animation.Commit(this, "typing-bubble", length: 260, finished: (_, _) => onFinished?.Invoke());
     }
 
     private void OnTypingItemPropertyChanged(object? sender, PropertyChangedEventArgs e)

@@ -77,6 +77,15 @@ public class DayAgendaView : ContentView
             null,
             propertyChanged: (b, _, _) => ((DayAgendaView)b).OnPersonsChangedInternal());
 
+    /// <summary>Bindable property for <see cref="Renderer"/>.</summary>
+    public static readonly BindableProperty RendererProperty =
+        BindableProperty.Create(
+            nameof(Renderer),
+            typeof(DayAgendaRenderer),
+            typeof(DayAgendaView),
+            null,
+            propertyChanged: (b, _, _) => ((DayAgendaView)b).RaiseRendererChanged());
+
     private readonly ScheduleTheme fallbackTheme = new ScheduleTheme();
 
     private readonly CarouselView carousel;
@@ -129,6 +138,9 @@ public class DayAgendaView : ContentView
 
     /// <summary>Internal: fired when <see cref="Persons"/> changes, for child pages.</summary>
     internal event Action? PersonsChanged;
+
+    /// <summary>Internal: fired when <see cref="Renderer"/> changes, for child pages.</summary>
+    internal event Action? RendererChanged;
 
     /// <summary>Gets the shared vertical scroll position across day pages, or NaN if uninitialized.</summary>
     internal double SharedScrollY { get; private set; } = double.NaN;
@@ -187,6 +199,16 @@ public class DayAgendaView : ContentView
     {
         get => (IList<IPerson>?)GetValue(PersonsProperty);
         set => SetValue(PersonsProperty, value);
+    }
+
+    /// <summary>
+    /// Custom painter for the agenda. Defaults to <see cref="DayAgendaRenderer.Default"/>. Subclass
+    /// <see cref="DayAgendaRenderer"/> and override <c>DrawAppointment</c> for per-type appointment looks.
+    /// </summary>
+    public DayAgendaRenderer Renderer
+    {
+        get => (DayAgendaRenderer)GetValue(RendererProperty) ?? DayAgendaRenderer.Default;
+        set => SetValue(RendererProperty, value);
     }
 
     /// <summary>Enables or disables horizontal swiping between pages. Used by child pages during drag.</summary>
@@ -310,6 +332,8 @@ public class DayAgendaView : ContentView
     private void RaiseHourHeightChanged() => HourHeightChanged?.Invoke();
 
     private void RaiseThemeChanged() => ThemeChanged?.Invoke();
+
+    private void RaiseRendererChanged() => RendererChanged?.Invoke();
 
     private void OnSourceChanged(IAppointmentSource? newSrc)
     {

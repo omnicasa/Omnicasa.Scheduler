@@ -18,6 +18,7 @@ jobs:
       SOLUTION: Omnicasa.Schedule.sln
       LIBRARY_PROJECT: src/Omnicasa.Schedule/Omnicasa.Schedule.csproj
       SAMPLE_PROJECT: samples/Omnicasa.Schedule.Sample/Omnicasa.Schedule.Sample.csproj
+      TEST_PROJECT: tests/Omnicasa.Schedule.Tests/Omnicasa.Schedule.Tests.csproj
 
     steps:
       - name: Checkout
@@ -55,3 +56,20 @@ jobs:
           dotnet build "$SAMPLE_PROJECT" \
             --configuration Debug \
             --no-restore
+
+      - name: Run unit tests (net9.0)
+        # Tests run on the plain net9.0 build of the library — no simulator needed.
+        run: |
+          dotnet test "$TEST_PROJECT" \
+            --configuration Debug \
+            --no-restore \
+            --logger "trx;LogFileName=test-results.trx" \
+            --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests/Omnicasa.Schedule.Tests/TestResults/**
+          if-no-files-found: ignore

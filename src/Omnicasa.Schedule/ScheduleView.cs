@@ -94,6 +94,15 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild());
 
+    /// <summary>Bindable property for <see cref="Renderer"/>.</summary>
+    public static readonly BindableProperty RendererProperty =
+        BindableProperty.Create(
+            nameof(Renderer),
+            typeof(ScheduleViewRenderer),
+            typeof(ScheduleView),
+            null,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).OnRendererChanged());
+
     /// <summary>Bindable property for <see cref="Persons"/>.</summary>
     public static readonly BindableProperty PersonsProperty =
         BindableProperty.Create(
@@ -126,6 +135,8 @@ public class ScheduleView : ContentView
     private readonly ScheduleRenderContext context = new ScheduleRenderContext();
 
     private readonly ScheduleBodyDrawable bodyDrawable;
+
+    private readonly ScheduleHeaderDrawable headerDrawable;
 
     private readonly GraphicsView headerCanvas;
 
@@ -164,9 +175,11 @@ public class ScheduleView : ContentView
     {
         bodyDrawable = new ScheduleBodyDrawable { Context = context };
 
+        headerDrawable = new ScheduleHeaderDrawable { Context = context };
+
         headerCanvas = new GraphicsView
         {
-            Drawable = new ScheduleHeaderDrawable { Context = context },
+            Drawable = headerDrawable,
             BackgroundColor = Colors.Transparent,
             InputTransparent = true,
         };
@@ -262,6 +275,17 @@ public class ScheduleView : ContentView
     {
         get => (ScheduleViewTheme)GetValue(ThemeProperty) ?? fallbackTheme;
         set => SetValue(ThemeProperty, value);
+    }
+
+    /// <summary>
+    /// Custom painter for the body and header. Defaults to <see cref="ScheduleViewRenderer.Default"/>.
+    /// Subclass <see cref="ScheduleViewRenderer"/> and override <c>DrawAppointment</c> (switching on the
+    /// item's concrete type) to render different appointment types differently.
+    /// </summary>
+    public ScheduleViewRenderer Renderer
+    {
+        get => (ScheduleViewRenderer)GetValue(RendererProperty) ?? ScheduleViewRenderer.Default;
+        set => SetValue(RendererProperty, value);
     }
 
     /// <summary>Optional persons. When non-empty, each day splits into one sub-column per person.</summary>
@@ -380,6 +404,15 @@ public class ScheduleView : ContentView
         {
             bodyCanvas.Invalidate();
         }
+    }
+
+    private void OnRendererChanged()
+    {
+        var renderer = Renderer;
+        bodyDrawable.Renderer = renderer;
+        headerDrawable.Renderer = renderer;
+        headerCanvas.Invalidate();
+        bodyCanvas.Invalidate();
     }
 
     private void Rebuild()

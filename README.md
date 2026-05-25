@@ -1,11 +1,18 @@
 # Omnicasa.Schedule
 
+[![NuGet](https://img.shields.io/nuget/v/Omnicasa.Schedule.svg?label=NuGet)](https://www.nuget.org/packages/Omnicasa.Schedule)
+[![Downloads](https://img.shields.io/nuget/dt/Omnicasa.Schedule.svg)](https://www.nuget.org/packages/Omnicasa.Schedule)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Smooth calendar and agenda controls for .NET MAUI (iOS + Android), inspired by the iOS Calendar, Outlook, and Google Calendar apps.
 
-The package ships two drop-in controls backed by a small, pluggable data-source abstraction:
+📦 **NuGet:** <https://www.nuget.org/packages/Omnicasa.Schedule>
 
+The package ships three drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
+
+- **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
+- **`DayAgendaView`** — day / 3-day / 5-day / week agenda with horizontal swipe between pages, pinch-to-zoom on the time rail, and tap / drag / resize on appointment blocks.
 - **`YearCalendarView`** — scrollable year-at-a-glance grid with 12 months per year and event-density dots.
-- **`DayAgendaView`** — day / 3-day / 5-day / week agenda with horizontal swipe, pinch-to-zoom on the time rail, and tap / drag / resize on appointment blocks.
 
 ## Screenshots
 
@@ -25,9 +32,56 @@ The package ships two drop-in controls backed by a small, pluggable data-source 
 dotnet add package Omnicasa.Schedule
 ```
 
-## Quick start
+Or via the [NuGet package page](https://www.nuget.org/packages/Omnicasa.Schedule).
 
-Expose an `IAppointmentSource` to feed the controls:
+## Quick start — `ScheduleView`
+
+Implement `IScheduleItem` on your own appointment model:
+
+```csharp
+public sealed class MyItem : IScheduleItem
+{
+    public string Id { get; init; } = Guid.NewGuid().ToString();
+    public string? Title { get; init; }
+    public DateTime Start { get; init; }
+    public DateTime End { get; init; }
+    public bool IsAllDay => false;
+    public Color? Color { get; init; }
+    public string? PersonId { get; init; }   // links to an IPerson when persons are bound
+    public string? Notes { get; init; }
+}
+```
+
+Optionally implement `IPerson` (or use the built-in `Person`) to split each day into one column per person:
+
+```csharp
+IList<IPerson> persons = new List<IPerson>
+{
+    new Person { Id = "p1", Name = "Alice", Color = Colors.DodgerBlue },
+    new Person { Id = "p2", Name = "Bob",   Color = Colors.MediumSeaGreen },
+};
+```
+
+Bind it in XAML:
+
+```xml
+<ContentPage xmlns:sched="clr-namespace:Omnicasa.Schedule;assembly=Omnicasa.Schedule">
+    <sched:ScheduleView StartDay="{Binding StartDay}"
+                        EndDay="{Binding EndDay}"
+                        ViewMode="{Binding ViewMode}"
+                        Persons="{Binding Persons}"
+                        ItemsSource="{Binding Items}"
+                        TypingItem="{Binding TypingItem}"
+                        Tapped="OnTapped"
+                        LongTapped="OnLongTapped"
+                        ItemTapped="OnItemTapped"
+                        ItemLongTapped="OnItemLongTapped" />
+</ContentPage>
+```
+
+## Quick start — `DayAgendaView` / `YearCalendarView`
+
+These two pull from an `IAppointmentSource`:
 
 ```csharp
 public sealed class MyAppointments : IAppointmentSource
@@ -42,25 +96,13 @@ public sealed class MyAppointments : IAppointmentSource
 }
 ```
 
-Year view:
-
 ```xml
-<ContentPage xmlns:sched="clr-namespace:Omnicasa.Schedule;assembly=Omnicasa.Schedule">
-    <sched:YearCalendarView x:Name="Year"
-                            MinYear="2020"
-                            MaxYear="2032"
-                            InitialYear="2026"
-                            DayTapped="OnDayTapped" />
-</ContentPage>
-```
+<sched:YearCalendarView x:Name="Year"
+                        MinYear="2020" MaxYear="2032" InitialYear="2026"
+                        DayTapped="OnDayTapped" />
 
-Day / week view:
-
-```xml
 <sched:DayAgendaView x:Name="Day"
-                     DaysPerPage="3"
-                     HourHeight="60"
-                     FirstDayOfWeek="Monday"
+                     DaysPerPage="3" HourHeight="60" FirstDayOfWeek="Monday"
                      AppointmentTapped="OnAppointmentTapped"
                      AppointmentChanged="OnAppointmentChanged" />
 ```
@@ -70,7 +112,40 @@ Year.AppointmentSource = new MyAppointments();
 Day.AppointmentSource  = Year.AppointmentSource;
 ```
 
+> `Appointment` implements `IScheduleItem`, so the same instances can feed `ScheduleView` too.
+
 ## Controls
+
+### `ScheduleView`
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `ItemsSource` | `null` | Any `IEnumerable` of objects implementing `IScheduleItem`. |
+| `StartDay` / `EndDay` | today / +6 days | Inclusive viewport range. |
+| `ViewMode` | `7` | Max columns shown (1–7); range is capped to this. |
+| `HourHeight` | `60` | Logical pixels per hour; clamped to `[24, 200]`, pinch to zoom. |
+| `Persons` | `null` | `IList<IPerson>`; when non-empty each day splits into one column per person. |
+| `TypingItem` | `null` | An `ITypingScheduleItem` draft block — shadowed, draggable, resizable. |
+| `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
+| `Renderer` | built-in | `ScheduleViewRenderer` — see [Custom rendering](#custom-rendering). |
+| `Tapped` / `LongTapped` | — | Empty-space tap; payload is the `DateTime` at the tap. |
+| `ItemTapped` / `ItemLongTapped` | — | Block tap; payload is the `IScheduleItem`. |
+
+### `DayAgendaView`
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `AppointmentSource` | `null` | Source the visible pages pull from. |
+| `SelectedDate` | `DateTime.Today` | First date of the visible page (two-way). |
+| `DaysPerPage` | `1` | Days side-by-side (1..7). When `7`, aligns to `FirstDayOfWeek`. |
+| `FirstDayOfWeek` | `Monday` | Week-mode alignment. |
+| `HourHeight` | `60` | Logical pixels per hour; clamped to `[24, 200]`, pinch to zoom. |
+| `DayWindow` | `365` | Days swipable in each direction from the anchor. |
+| `Persons` | `null` | `IList<IPerson>`; one column per person. |
+| `Theme` | built-in | `ScheduleTheme` palette. |
+| `Renderer` | built-in | `DayAgendaRenderer` — see [Custom rendering](#custom-rendering). |
+| `AppointmentTapped` event | — | Tap an appointment block. |
+| `AppointmentChanged` event | — | Fired after a drag or resize commit. |
 
 ### `YearCalendarView`
 
@@ -83,23 +158,9 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `DayTapped` event | — | Fires with a `DateOnly` when a day cell is tapped. |
 | `ScrollToYear(year, animated)` | — | Programmatically scroll. |
 
-### `DayAgendaView`
-
-| Property | Default | Description |
-| --- | --- | --- |
-| `AppointmentSource` | `null` | Source the visible pages pull from. |
-| `SelectedDate` | `DateTime.Today` | First date of the visible page (two-way). |
-| `DaysPerPage` | `1` | Days side-by-side (1..7). When `7`, aligns to `FirstDayOfWeek`. |
-| `FirstDayOfWeek` | `Monday` | Week-mode alignment. |
-| `HourHeight` | `60` | Logical pixels per hour; clamped to `[24, 200]`, pinch to zoom. |
-| `DayWindow` | `365` | Days swipable in each direction from the anchor. |
-| `Theme` | built-in | `ScheduleTheme` palette. |
-| `AppointmentTapped` event | — | Tap an appointment block. |
-| `AppointmentChanged` event | — | Fired after a drag or resize commit. |
-
 ## Theming
 
-Override colors via `ScheduleTheme` and assign it to any control:
+Override colors (and, for `ScheduleView`, font sizes) via the theme object and assign it to any control:
 
 ```csharp
 Day.Theme = new ScheduleTheme
@@ -112,9 +173,54 @@ Day.Theme = new ScheduleTheme
 };
 ```
 
+## Custom rendering
+
+Theming only changes colors and fonts. When you need **different appointment types to draw differently** (or want to restyle headers, the hour grid, the today marker, or the draft block), override the renderer. Both `ScheduleView` and `DayAgendaView` expose a `Renderer` property; subclass the matching renderer base and override only the primitives you need — every other primitive keeps the built-in look.
+
+The most common case is per-type appointment drawing: override `DrawAppointment`, switch on your concrete model type, and call `base` for the default look.
+
+```csharp
+public sealed class MyRenderer : ScheduleViewRenderer
+{
+    public override void DrawAppointment(ScheduleAppointmentContext ctx)
+    {
+        switch (ctx.Item)
+        {
+            case MeetingItem:
+                // paint into ctx.Rect with ctx.Canvas, using ctx.BlockColor / ctx.Theme
+                ctx.Canvas.FillColor = ctx.BlockColor;
+                ctx.Canvas.FillRoundedRectangle(ctx.Rect, 10);
+                break;
+
+            case LeaveItem:
+                // a different look for a different type…
+                break;
+
+            default:
+                base.DrawAppointment(ctx);   // fall back to the built-in block
+                break;
+        }
+    }
+
+    // Other overridable primitives (defaults reproduce the built-in look):
+    //   DrawHeader, DrawHourGrid, DrawColumnSeparators, DrawTodayMarker,
+    //   DrawTypingItem, DrawBackground
+}
+```
+
+```xml
+<sched:ScheduleView Renderer="{Binding MyRenderer}" ItemsSource="{Binding Items}" />
+```
+
+Notes:
+
+- `DayAgendaView` works the same way via `DayAgendaRenderer`; its `DayAgendaAppointmentContext` also exposes `IsGhost` (the drag ghost), `ShowResizeHandle`, and `FontScale`.
+- Geometry and hit-testing stay inside the controls, so custom drawing can never desync tap / drag / resize regions — you only control the pixels inside the supplied `Rect`.
+- Leaving `Renderer` unset uses the shared default (`ScheduleViewRenderer.Default` / `DayAgendaRenderer.Default`).
+
 ## Sample app
 
-The repo contains a runnable sample under `samples/Omnicasa.Schedule.Sample` that wires both controls to an in-memory source of randomized appointments and navigates from year → day on tap.
+The repo contains a runnable sample under `samples/Omnicasa.Schedule.Sample` that wires the controls to an in-memory source of randomized appointments and navigates from year → day on tap.
 
 ```bash
 # iOS
@@ -127,7 +233,12 @@ dotnet build samples/Omnicasa.Schedule.Sample -f net9.0-android -t:Run
 ## Repository layout
 
 ```
-src/Omnicasa.Schedule/          # the library (YearCalendarView, DayAgendaView, …)
+src/Omnicasa.Schedule/             # the library (ScheduleView, DayAgendaView, YearCalendarView, …)
 samples/Omnicasa.Schedule.Sample/  # MAUI demo app (iOS + Android)
-screenshots/                    # images referenced above
+tests/Omnicasa.Schedule.Tests/     # xUnit unit tests (net9.0)
+screenshots/                       # images referenced above
 ```
+
+## License
+
+Licensed under the [MIT License](LICENSE) — © 2026 Hoang Quach (Omnicasa). You're free to use, modify, and distribute it, including commercially, provided the copyright notice and license text are retained.

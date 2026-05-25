@@ -66,6 +66,7 @@ internal class DayAgendaPage : ContentView
         this.host = host;
 
         drawable.Theme = host.Theme;
+        drawable.Renderer = host.Renderer;
 
         canvas = new GraphicsView
         {
@@ -119,6 +120,7 @@ internal class DayAgendaPage : ContentView
 
         host.HourHeightChanged += OnHourHeightChanged;
         host.ThemeChanged += OnThemeChanged;
+        host.RendererChanged += OnRendererChanged;
         host.SourceChanged += OnSourceChanged;
         host.SharedScrollYChanged += OnSharedScrollYChanged;
         host.DaysPerPageChanged += OnConfigChanged;
@@ -139,6 +141,7 @@ internal class DayAgendaPage : ContentView
         {
             host.HourHeightChanged -= OnHourHeightChanged;
             host.ThemeChanged -= OnThemeChanged;
+            host.RendererChanged -= OnRendererChanged;
             host.SourceChanged -= OnSourceChanged;
             host.SharedScrollYChanged -= OnSharedScrollYChanged;
             host.DaysPerPageChanged -= OnConfigChanged;
@@ -262,6 +265,12 @@ internal class DayAgendaPage : ContentView
         drawable.Theme = host.Theme;
         moveHandle.BackgroundColor = host.Theme.Accent;
         resizeHandle.BackgroundColor = host.Theme.Accent;
+        canvas.Invalidate();
+    }
+
+    private void OnRendererChanged()
+    {
+        drawable.Renderer = host.Renderer;
         canvas.Invalidate();
     }
 

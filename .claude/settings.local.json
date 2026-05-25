@@ -5,7 +5,12 @@
       "Bash(xcrun *)",
       "Bash(sudo xcodebuild *)",
       "Bash(xcodebuild -runFirstLaunch)",
-      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild *)"
+      "Bash(/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild *)",
+      "Bash(dotnet test *)",
+      "Bash(dotnet pack *)",
+      "Bash(unzip -l /tmp/packtest/*.nupkg)",
+      "Bash(awk '{print $4}')",
+      "Bash(unzip -p *.nupkg '*.nuspec')"
     ]
   }
 }

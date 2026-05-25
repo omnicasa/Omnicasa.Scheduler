@@ -16,6 +16,7 @@ jobs:
       DOTNET_NOLOGO: true
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       LIBRARY_PROJECT: src/Omnicasa.Schedule/Omnicasa.Schedule.csproj
+      TEST_PROJECT: tests/Omnicasa.Schedule.Tests/Omnicasa.Schedule.Tests.csproj
       ARTIFACTS_DIR: artifacts
 
     steps:
@@ -46,6 +47,10 @@ jobs:
           VERSION="${DATE}.${{ github.run_number }}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Computed package version: $VERSION (NuGet will display this as a normalized form, e.g. leading zero in the 'MMdd' segment is stripped — sort order is preserved)."
+
+      - name: Run unit tests (net9.0)
+        # Gate the release on the test suite. Runs against the plain net9.0 build — no simulator.
+        run: dotnet test "$TEST_PROJECT" --configuration Release
 
       - name: Restore
         run: dotnet restore "$LIBRARY_PROJECT"

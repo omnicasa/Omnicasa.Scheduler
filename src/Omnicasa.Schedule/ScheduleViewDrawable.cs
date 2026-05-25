@@ -50,6 +50,12 @@ public sealed class ScheduleRenderContext
 
     /// <summary>Optional draft / typing item rendered as a shadowed overlay over the body.</summary>
     public ITypingScheduleItem? TypingItem { get; set; }
+
+    /// <summary>
+    /// Scale applied to the typing block about its center (1 = full size), driving the bubble
+    /// show/dismiss animation. Values may briefly exceed 1 for the spring overshoot.
+    /// </summary>
+    public float TypingScale { get; set; } = 1f;
 }
 
 /// <summary>Renders the sticky header bar (day groups + per-column sub-headers) above <see cref="ScheduleView"/>'s body.</summary>
@@ -211,14 +217,32 @@ public sealed class ScheduleBodyDrawable : IDrawable
         var rect = new RectF(x, y1, rw, rh);
         typingRect = rect;
 
+        // Bubble animation: scale about the center and fade, both driven by TypingScale.
+        float ts = Context.TypingScale;
+        bool animating = MathF.Abs(ts - 1f) > 0.001f;
+        var drawRect = rect;
+        if (animating)
+        {
+            float dw = rect.Width * ts;
+            float dh = rect.Height * ts;
+            drawRect = new RectF(rect.Center.X - (dw / 2f), rect.Center.Y - (dh / 2f), dw, dh);
+            canvas.SaveState();
+            canvas.Alpha = Math.Clamp(ts, 0f, 1f);
+        }
+
         Renderer.DrawTypingItem(new ScheduleTypingContext
         {
             Canvas = canvas,
             Item = typing,
-            Rect = rect,
+            Rect = drawRect,
             BlockColor = typing.Color ?? column.Accent ?? theme.Accent,
             Theme = theme,
         });
+
+        if (animating)
+        {
+            canvas.RestoreState();
+        }
     }
 
     private int FindTypingColumn(ITypingScheduleItem typing)

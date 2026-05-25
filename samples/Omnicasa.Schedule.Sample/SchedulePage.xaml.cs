@@ -33,12 +33,20 @@ public partial class SchedulePage
             "OK");
     }
 
-    private async void OnLongTapped(object? sender, ScheduleTappedEventArgs e)
+    private void OnLongTapped(object? sender, ScheduleTappedEventArgs e)
     {
-        await DisplayAlert(
-            "Long tap",
-            $"Empty space at {e.When.ToString("g", CultureInfo.CurrentCulture)}",
-            "OK");
+        // Long-tap on empty space toggles the draft: create one at that time, or dismiss the existing one.
+        if (BindingContext is SchedulePageViewModel vm)
+        {
+            if (vm.TypingItem is not null)
+            {
+                vm.DismissDraft();
+            }
+            else
+            {
+                vm.CreateDraftAt(e.When);
+            }
+        }
     }
 
     private async void OnItemTapped(object? sender, ScheduleItemTappedEventArgs e)

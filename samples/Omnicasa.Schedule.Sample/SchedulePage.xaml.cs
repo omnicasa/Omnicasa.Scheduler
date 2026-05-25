@@ -10,6 +10,15 @@ public partial class SchedulePage
     {
         InitializeComponent();
         Loaded += OnPageLoaded;
+
+        // Long-press an appointment to show a native menu (iOS context menu / Android PopupMenu).
+        Schedule.ItemActionsProvider = _ => new[] { "Edit", "Duplicate", "Delete" };
+        Schedule.ItemActionInvoked += OnItemActionInvoked;
+    }
+
+    private async void OnItemActionInvoked(object? sender, ScheduleItemActionEventArgs e)
+    {
+        await DisplayAlert(e.Item.Title ?? "(no title)", $"Action: {e.Action}", "OK");
     }
 
     private void OnPageLoaded(object? sender, EventArgs e)

@@ -9,6 +9,20 @@ public partial class SchedulePage
     public SchedulePage()
     {
         InitializeComponent();
+        Loaded += OnPageLoaded;
+    }
+
+    private void OnPageLoaded(object? sender, EventArgs e)
+    {
+        // Open near the current time (one hour of lead-in), clamped to midnight. Deferred so the
+        // ScheduleView has laid out and its scrollable content has a measured height.
+        var top = DateTime.Now.TimeOfDay - TimeSpan.FromHours(1);
+        if (top < TimeSpan.Zero)
+        {
+            top = TimeSpan.Zero;
+        }
+
+        Dispatcher.Dispatch(() => _ = Schedule.ScrollToTimeAsync(top));
     }
 
     private async void OnTapped(object? sender, ScheduleTappedEventArgs e)

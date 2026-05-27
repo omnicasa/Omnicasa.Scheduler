@@ -54,6 +54,35 @@ public sealed class ScheduleItemActionEventArgs : EventArgs
     public string Action { get; }
 }
 
+/// <summary>Event payload for a dropped <c>HoldingSchedule</c> block.</summary>
+public sealed class HoldingDroppedEventArgs : EventArgs
+{
+    /// <summary>Initializes a new instance of the <see cref="HoldingDroppedEventArgs"/> class.</summary>
+    /// <param name="item">The held item that was dropped.</param>
+    /// <param name="start">The snapped start time at the drop location.</param>
+    /// <param name="end">The snapped end time at the drop location (reflects any resize).</param>
+    /// <param name="personId">The person id of the column dropped on, or null.</param>
+    public HoldingDroppedEventArgs(IScheduleItem item, DateTime start, DateTime end, string? personId)
+    {
+        Item = item;
+        Start = start;
+        End = end;
+        PersonId = personId;
+    }
+
+    /// <summary>Gets the held item that was dropped (unchanged by the control).</summary>
+    public IScheduleItem Item { get; }
+
+    /// <summary>Gets the snapped start time at the drop location.</summary>
+    public DateTime Start { get; }
+
+    /// <summary>Gets the snapped end time at the drop location (reflects any resize).</summary>
+    public DateTime End { get; }
+
+    /// <summary>Gets the person id of the column the block was dropped on, or null.</summary>
+    public string? PersonId { get; }
+}
+
 /// <summary>
 /// Minimal read-only schedule control. Renders a fixed [<see cref="StartDay"/>, <see cref="EndDay"/>]
 /// viewport (capped to <see cref="ViewMode"/> columns), optionally splitting each day into
@@ -159,6 +188,15 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnTypingItemChanged(o as ITypingScheduleItem, n as ITypingScheduleItem));
 
+    /// <summary>Bindable property for <see cref="HoldingSchedule"/>.</summary>
+    public static readonly BindableProperty HoldingScheduleProperty =
+        BindableProperty.Create(
+            nameof(HoldingSchedule),
+            typeof(IScheduleItem),
+            typeof(ScheduleView),
+            null,
+            propertyChanged: (b, o, n) => ((ScheduleView)b).OnHoldingScheduleChanged(o as IScheduleItem, n as IScheduleItem));
+
     private readonly ScheduleViewTheme fallbackTheme = new ScheduleViewTheme();
 
     private readonly ScheduleRenderContext context = new ScheduleRenderContext();
@@ -202,6 +240,20 @@ public class ScheduleView : ContentView
     private DateTime typingOriginEnd;
 
     private PointF typingOriginPoint;
+
+    private TypingDragMode holdingDragMode = TypingDragMode.None;
+
+    private PointF holdingOriginPoint;
+
+    private DateTime holdingOriginStart;
+
+    private DateTime holdingOriginEnd;
+
+    private DateTime holdingDragStart;
+
+    private DateTime holdingDragEnd;
+
+    private int holdingDragColumn = -1;
 
 #if IOS
     private bool iosMenuAttached;
@@ -304,6 +356,9 @@ public class ScheduleView : ContentView
     /// <summary>Fired when the user picks an action from an appointment's long-press menu.</summary>
     public event EventHandler<ScheduleItemActionEventArgs>? ItemActionInvoked;
 
+    /// <summary>Fired when the held <see cref="HoldingSchedule"/> block is released. The item is not mutated.</summary>
+    public event EventHandler<HoldingDroppedEventArgs>? HoldingDropped;
+
     /// <summary>
     /// Optional provider of long-press menu actions for an appointment. Return the action labels to
     /// offer; an empty or absent list means no menu (long-press then falls back to
@@ -394,6 +449,17 @@ public class ScheduleView : ContentView
     {
         get => (ITypingScheduleItem?)GetValue(TypingItemProperty);
         set => SetValue(TypingItemProperty, value);
+    }
+
+    /// <summary>
+    /// Optional "held" item drawn as a floating block. Touch it to drag — free vertically (any time),
+    /// snapped horizontally to the nearest column. On release, <see cref="HoldingDropped"/> fires with
+    /// the snapped time/person; the item itself is not modified (the app decides whether to apply it).
+    /// </summary>
+    public IScheduleItem? HoldingSchedule
+    {
+        get => (IScheduleItem?)GetValue(HoldingScheduleProperty);
+        set => SetValue(HoldingScheduleProperty, value);
     }
 
     /// <summary>
@@ -551,6 +617,31 @@ public class ScheduleView : ContentView
         }
     }
 
+    private void OnHoldingScheduleChanged(IScheduleItem? oldValue, IScheduleItem? newValue)
+    {
+        if (oldValue is INotifyPropertyChanged oldInpc)
+        {
+            oldInpc.PropertyChanged -= OnHoldingItemPropertyChanged;
+        }
+
+        if (newValue is INotifyPropertyChanged newInpc)
+        {
+            newInpc.PropertyChanged += OnHoldingItemPropertyChanged;
+        }
+
+        // New item starts at its natural position; cancel any in-flight drag.
+        holdingDragMode = TypingDragMode.None;
+        holdingDragColumn = -1;
+        context.HoldingItem = newValue;
+        context.HoldingDragColumn = -1;
+        context.HoldingDragStart = null;
+        context.HoldingDragEnd = null;
+        bodyScroll.Orientation = ScrollOrientation.Vertical;
+        bodyCanvas.Invalidate();
+    }
+
+    private void OnHoldingItemPropertyChanged(object? sender, PropertyChangedEventArgs e) => bodyCanvas.Invalidate();
+
     private void OnRendererChanged()
     {
         var renderer = Renderer;
@@ -697,6 +788,13 @@ public class ScheduleView : ContentView
 
         var p = new PointF((float)pt.Value.X, (float)pt.Value.Y);
 
+        if (TryBeginHoldingDrag(p))
+        {
+            longPressTimer.Stop();
+            pointerDown = false;
+            return;
+        }
+
         if (TryBeginTypingDrag(p))
         {
             longPressTimer.Stop();
@@ -762,6 +860,12 @@ public class ScheduleView : ContentView
         }
 
         var p = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+
+        if (holdingDragMode != TypingDragMode.None)
+        {
+            UpdateHoldingDrag(p);
+            return;
+        }
 
         if (typingDragMode != TypingDragMode.None)
         {
@@ -886,6 +990,12 @@ public class ScheduleView : ContentView
 
     private void OnPointerReleased(object? sender, PointerEventArgs e)
     {
+        if (holdingDragMode != TypingDragMode.None)
+        {
+            EndHoldingDrag(drop: true);
+            return;
+        }
+
         if (typingDragMode != TypingDragMode.None)
         {
             EndTypingDrag();
@@ -910,6 +1020,11 @@ public class ScheduleView : ContentView
 
     private void OnPointerCanceled(object? sender, PointerEventArgs e)
     {
+        if (holdingDragMode != TypingDragMode.None)
+        {
+            EndHoldingDrag(drop: false);
+        }
+
         if (typingDragMode != TypingDragMode.None)
         {
             EndTypingDrag();
@@ -922,6 +1037,141 @@ public class ScheduleView : ContentView
     {
         typingDragMode = TypingDragMode.None;
         bodyScroll.Orientation = ScrollOrientation.Vertical;
+    }
+
+    private bool TryBeginHoldingDrag(PointF p)
+    {
+        var item = HoldingSchedule;
+        if (item is null)
+        {
+            return false;
+        }
+
+        var rect = bodyDrawable.HoldingRect;
+        if (rect is null || !rect.Value.Contains(p))
+        {
+            return false;
+        }
+
+        // Top-left corner resizes the start, bottom-right resizes the end, elsewhere moves.
+        const float cornerZone = 24f;
+        float relX = p.X - rect.Value.X;
+        float relY = p.Y - rect.Value.Y;
+        bool inTopLeft = relX < cornerZone && relY < cornerZone;
+        bool inBottomRight = (rect.Value.Width - relX) < cornerZone && (rect.Value.Height - relY) < cornerZone;
+        holdingDragMode = inTopLeft ? TypingDragMode.ResizeStart
+            : inBottomRight ? TypingDragMode.ResizeEnd
+            : TypingDragMode.Move;
+
+        holdingOriginPoint = p;
+        holdingOriginStart = item.Start;
+        holdingOriginEnd = item.End;
+        holdingDragStart = item.Start;
+        holdingDragEnd = item.End;
+        holdingDragColumn = HitTestColumn(p.X);
+        context.HoldingDragColumn = holdingDragColumn;
+        context.HoldingDragStart = holdingDragStart;
+        context.HoldingDragEnd = holdingDragEnd;
+        bodyScroll.Orientation = ScrollOrientation.Neither;
+        bodyCanvas.Invalidate();
+        return true;
+    }
+
+    private void UpdateHoldingDrag(PointF p)
+    {
+        var item = HoldingSchedule;
+        if (item is null)
+        {
+            return;
+        }
+
+        double dy = p.Y - holdingOriginPoint.Y;
+        double snappedMinutes = Math.Round(dy / HourHeight * 60.0 / 15.0) * 15.0;
+        var duration = holdingOriginEnd - holdingOriginStart;
+        if (duration <= TimeSpan.Zero)
+        {
+            duration = TimeSpan.FromMinutes(30);
+        }
+
+        switch (holdingDragMode)
+        {
+            case TypingDragMode.Move:
+            {
+                // Free vertical (snapped), horizontal snaps to the nearest column.
+                int col = HitTestColumn(p.X);
+                DateTime baseDay = col >= 0 ? context.Columns[col].DayStart : holdingOriginStart.Date;
+                var tentative = baseDay.Add(holdingOriginStart.TimeOfDay).AddMinutes(snappedMinutes);
+                var clamped = ClampToDay(tentative, baseDay, duration);
+                holdingDragStart = clamped;
+                holdingDragEnd = clamped + duration;
+                holdingDragColumn = col;
+                break;
+            }
+
+            case TypingDragMode.ResizeStart:
+            {
+                var newStart = holdingOriginStart.AddMinutes(snappedMinutes);
+                var dayStart = holdingOriginStart.Date;
+                if (newStart < dayStart)
+                {
+                    newStart = dayStart;
+                }
+
+                if (newStart > holdingOriginEnd.AddMinutes(-15))
+                {
+                    newStart = holdingOriginEnd.AddMinutes(-15);
+                }
+
+                holdingDragStart = newStart;
+                holdingDragEnd = holdingOriginEnd;
+                break;
+            }
+
+            case TypingDragMode.ResizeEnd:
+            {
+                var newEnd = holdingOriginEnd.AddMinutes(snappedMinutes);
+                var minEnd = holdingOriginStart.AddMinutes(15);
+                if (newEnd < minEnd)
+                {
+                    newEnd = minEnd;
+                }
+
+                var dayEnd = holdingOriginStart.Date.AddDays(1);
+                if (newEnd > dayEnd)
+                {
+                    newEnd = dayEnd;
+                }
+
+                holdingDragStart = holdingOriginStart;
+                holdingDragEnd = newEnd;
+                break;
+            }
+        }
+
+        context.HoldingDragColumn = holdingDragColumn;
+        context.HoldingDragStart = holdingDragStart;
+        context.HoldingDragEnd = holdingDragEnd;
+        bodyCanvas.Invalidate();
+    }
+
+    private void EndHoldingDrag(bool drop)
+    {
+        var item = HoldingSchedule;
+        holdingDragMode = TypingDragMode.None;
+        bodyScroll.Orientation = ScrollOrientation.Vertical;
+
+        if (drop && item is not null)
+        {
+            string? personId = holdingDragColumn >= 0 ? context.Columns[holdingDragColumn].PersonId : null;
+            HoldingDropped?.Invoke(this, new HoldingDroppedEventArgs(item, holdingDragStart, holdingDragEnd, personId));
+        }
+
+        // Event-only: don't mutate the item — return the block to its natural position.
+        holdingDragColumn = -1;
+        context.HoldingDragColumn = -1;
+        context.HoldingDragStart = null;
+        context.HoldingDragEnd = null;
+        bodyCanvas.Invalidate();
     }
 
 #if IOS

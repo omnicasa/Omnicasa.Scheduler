@@ -41,6 +41,15 @@
                 <Switch IsToggled="{Binding ShowTyping}"
                         VerticalOptions="Center" />
               </HorizontalStackLayout>
+              <HorizontalStackLayout
+                Spacing="6"
+                VerticalOptions="Center">
+                <Label Text="Hold"
+                       VerticalOptions="Center"
+                       FontSize="13" />
+                <Switch IsToggled="{Binding ShowHolding}"
+                        VerticalOptions="Center" />
+              </HorizontalStackLayout>
             </VerticalStackLayout>
 
 
@@ -70,10 +79,12 @@
                             Persons="{Binding Persons}"
                             ItemsSource="{Binding Items}"
                             TypingItem="{Binding TypingItem}"
+                            HoldingSchedule="{Binding HoldingSchedule}"
                             Tapped="OnTapped"
                             LongTapped="OnLongTapped"
                             ItemTapped="OnItemTapped"
-                            ItemLongTapped="OnItemLongTapped" />
+                            ItemLongTapped="OnItemLongTapped"
+                            HoldingDropped="OnHoldingDropped" />
     </Grid>
 
 </ContentPage>

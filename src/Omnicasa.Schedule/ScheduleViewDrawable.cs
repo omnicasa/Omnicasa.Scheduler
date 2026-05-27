@@ -56,6 +56,18 @@ public sealed class ScheduleRenderContext
     /// show/dismiss animation. Values may briefly exceed 1 for the spring overshoot.
     /// </summary>
     public float TypingScale { get; set; } = 1f;
+
+    /// <summary>Optional held item drawn as a floating, draggable block.</summary>
+    public IScheduleItem? HoldingItem { get; set; }
+
+    /// <summary>Column the held block is being dragged over; -1 means draw at its natural position.</summary>
+    public int HoldingDragColumn { get; set; } = -1;
+
+    /// <summary>Start time of the held block while dragging; null means draw at its natural start.</summary>
+    public DateTime? HoldingDragStart { get; set; }
+
+    /// <summary>End time of the held block while dragging; null means draw at its natural end.</summary>
+    public DateTime? HoldingDragEnd { get; set; }
 }
 
 /// <summary>Renders the sticky header bar (day groups + per-column sub-headers) above <see cref="ScheduleView"/>'s body.</summary>
@@ -82,6 +94,8 @@ public sealed class ScheduleBodyDrawable : IDrawable
 
     private RectF? typingRect;
 
+    private RectF? holdingRect;
+
     /// <summary>Shared render state.</summary>
     public ScheduleRenderContext Context { get; set; } = new ScheduleRenderContext();
 
@@ -94,11 +108,15 @@ public sealed class ScheduleBodyDrawable : IDrawable
     /// <summary>Rect of the rendered typing item, if any (populated by <see cref="Draw"/>).</summary>
     public RectF? TypingRect => typingRect;
 
+    /// <summary>Rect of the rendered holding item, if any (populated by <see cref="Draw"/>).</summary>
+    public RectF? HoldingRect => holdingRect;
+
     /// <inheritdoc />
     public void Draw(ICanvas canvas, RectF dirtyRect)
     {
         hitMap.Clear();
         typingRect = null;
+        holdingRect = null;
 
         var ctx = Context;
         var theme = ctx.Theme;
@@ -133,6 +151,7 @@ public sealed class ScheduleBodyDrawable : IDrawable
         Renderer.DrawColumnSeparators(canvas, contentX, colW, n, h, theme);
         Renderer.DrawTodayMarker(canvas, contentX, colW, ctx);
         DrawTypingItem(canvas, contentX, colW);
+        DrawHoldingItem(canvas, contentX, colW);
     }
 
     private void DrawColumnItems(ICanvas canvas, int columnIndex, float x0, float colW)
@@ -246,18 +265,21 @@ public sealed class ScheduleBodyDrawable : IDrawable
     }
 
     private int FindTypingColumn(ITypingScheduleItem typing)
+        => FindColumn(DateOnly.FromDateTime(typing.Start), typing.PersonId);
+
+    // Column whose day matches; prefers the one matching personId, else the first of that day. -1 if none.
+    private int FindColumn(DateOnly date, string? personId)
     {
-        var typingDate = DateOnly.FromDateTime(typing.Start);
         int matchByDayOnly = -1;
         for (int i = 0; i < Context.Columns.Count; i++)
         {
             var col = Context.Columns[i];
-            if (DateOnly.FromDateTime(col.DayStart) != typingDate)
+            if (DateOnly.FromDateTime(col.DayStart) != date)
             {
                 continue;
             }
 
-            if (string.Equals(col.PersonId, typing.PersonId, StringComparison.Ordinal))
+            if (string.Equals(col.PersonId, personId, StringComparison.Ordinal))
             {
                 return i;
             }
@@ -269,5 +291,64 @@ public sealed class ScheduleBodyDrawable : IDrawable
         }
 
         return matchByDayOnly;
+    }
+
+    private void DrawHoldingItem(ICanvas canvas, float contentX, float colW)
+    {
+        var item = Context.HoldingItem;
+        if (item is null || item.IsAllDay)
+        {
+            return;
+        }
+
+        // Column: the one being dragged over, else the item's natural column.
+        int colIdx = Context.HoldingDragColumn >= 0
+            ? Context.HoldingDragColumn
+            : FindColumn(DateOnly.FromDateTime(item.Start), item.PersonId);
+        if (colIdx < 0 || colIdx >= Context.Columns.Count)
+        {
+            return;
+        }
+
+        var column = Context.Columns[colIdx];
+        var dayStart = column.DayStart;
+        var dayEnd = dayStart.AddDays(1);
+
+        // Start/end: the dragged times (already on this column's day) while dragging, else natural.
+        var startTime = Context.HoldingDragStart ?? item.Start;
+        var endTime = Context.HoldingDragEnd ?? item.End;
+        if (endTime <= startTime)
+        {
+            endTime = startTime.AddMinutes(30);
+        }
+
+        var clipStart = startTime < dayStart ? dayStart : startTime;
+        var clipEnd = endTime > dayEnd ? dayEnd : endTime;
+        if (clipEnd <= clipStart)
+        {
+            return;
+        }
+
+        var scale = Context.Scale;
+        var theme = Context.Theme;
+        float y1 = scale.YForTime(clipStart - dayStart);
+        float y2 = scale.YForTime(clipEnd - dayStart);
+        float x = contentX + (colIdx * colW) + 4;
+        float rw = colW - 8;
+        float rh = MathF.Max(y2 - y1, 24);
+        var rect = new RectF(x, y1, rw, rh);
+        holdingRect = rect;
+
+        Renderer.DrawHoldingItem(new ScheduleHoldingContext
+        {
+            Canvas = canvas,
+            Item = item,
+            Rect = rect,
+            DisplayStart = startTime,
+            DisplayEnd = endTime,
+            BlockColor = item.Color ?? column.Accent ?? theme.Accent,
+            Theme = theme,
+            IsDragging = Context.HoldingDragColumn >= 0,
+        });
     }
 }

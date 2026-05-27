@@ -47,6 +47,37 @@ public sealed class ScheduleTypingContext
 }
 
 /// <summary>
+/// Paints the "holding" block for <see cref="ScheduleView"/> — an item that floats and is dragged
+/// (free vertically, snapped to a column). Drawn whenever <c>ScheduleView.HoldingSchedule</c> is set.
+/// </summary>
+public sealed class ScheduleHoldingContext
+{
+    /// <summary>Target canvas.</summary>
+    public ICanvas Canvas { get; init; } = null!;
+
+    /// <summary>The held item being drawn.</summary>
+    public IScheduleItem Item { get; init; } = null!;
+
+    /// <summary>Rectangle the block occupies (natural position, or the current drag position).</summary>
+    public RectF Rect { get; init; }
+
+    /// <summary>Start time currently shown (the dragged time while dragging, else the item's start).</summary>
+    public DateTime DisplayStart { get; init; }
+
+    /// <summary>End time currently shown.</summary>
+    public DateTime DisplayEnd { get; init; }
+
+    /// <summary>Resolved background color (item color, else column accent, else theme accent).</summary>
+    public Color BlockColor { get; init; } = Colors.Gray;
+
+    /// <summary>Active theme (colors + font sizes).</summary>
+    public ScheduleViewTheme Theme { get; init; } = new ScheduleViewTheme();
+
+    /// <summary>True while the user is actively dragging the block.</summary>
+    public bool IsDragging { get; init; }
+}
+
+/// <summary>
 /// Pluggable painter for <see cref="ScheduleView"/>. Subclass and override only the primitives you
 /// need; each method's default reproduces the built-in look. For appointments that should render
 /// differently per type, override <see cref="DrawAppointment"/> and switch on
@@ -377,6 +408,73 @@ public class ScheduleViewRenderer
             canvas.FontSize = rangeSize;
             canvas.Font = Microsoft.Maui.Graphics.Font.Default;
             var range = $"{FormatTime(typing.Start)} – {FormatTime(typing.End)}";
+            canvas.DrawString(
+                range,
+                new RectF(x + 10, textTopY + titleBoxH, rw - 20, rangeBoxH),
+                HorizontalAlignment.Left,
+                VerticalAlignment.Top);
+        }
+    }
+
+    /// <summary>
+    /// Draws the holding block (a floating, draggable item). Default is a shadowed rounded block with
+    /// title + time range; it lifts slightly while dragging. Override and switch on
+    /// <see cref="ScheduleHoldingContext.Item"/> for a custom look.
+    /// </summary>
+    public virtual void DrawHoldingItem(ScheduleHoldingContext ctx)
+    {
+        var canvas = ctx.Canvas;
+        var theme = ctx.Theme;
+        var rect = ctx.Rect;
+        float x = rect.Left;
+        float y1 = rect.Top;
+        float rw = rect.Width;
+        float rh = rect.Height;
+        var bg = ctx.BlockColor;
+
+        canvas.SaveState();
+        canvas.SetShadow(new SizeF(0, ctx.IsDragging ? 6 : 3), ctx.IsDragging ? 12 : 8, new Color(0, 0, 0, 0.35f));
+        canvas.FillColor = bg;
+        canvas.FillRoundedRectangle(rect, 8);
+        canvas.RestoreState();
+
+        // Resize handles: top-left (start) and bottom-right (end), matching the typing block.
+        const float handleRadius = 7f;
+        var borderColor = theme.Today;
+        float topLeftCx = x + handleRadius;
+        float topLeftCy = y1 + handleRadius;
+        float bottomRightCx = (x + rw) - handleRadius;
+        float bottomRightCy = (y1 + rh) - handleRadius;
+
+        canvas.FillColor = Colors.White;
+        canvas.FillCircle(topLeftCx, topLeftCy, handleRadius);
+        canvas.FillCircle(bottomRightCx, bottomRightCy, handleRadius);
+        canvas.StrokeColor = borderColor;
+        canvas.StrokeSize = 2f;
+        canvas.DrawCircle(topLeftCx, topLeftCy, handleRadius);
+        canvas.DrawCircle(bottomRightCx, bottomRightCy, handleRadius);
+
+        var textColor = new Color(1f, 1f, 1f, 0.95f);
+        float titleSize = (float)theme.BlockTitleFontSize;
+        float titleBoxH = titleSize + 4f;
+        float rangeSize = (float)theme.BlockRangeFontSize;
+        float rangeBoxH = rangeSize + 4f;
+
+        float textTopY = y1 + (2f * handleRadius) + 4f;
+        canvas.FontColor = textColor;
+        canvas.FontSize = titleSize;
+        canvas.Font = Microsoft.Maui.Graphics.Font.DefaultBold;
+        canvas.DrawString(
+            ctx.Item.Title ?? string.Empty,
+            new RectF(x + 10, textTopY, rw - 20, MathF.Min(titleBoxH, (y1 + rh) - textTopY - (2f * handleRadius))),
+            HorizontalAlignment.Left,
+            VerticalAlignment.Top);
+
+        if (rh > (4f * handleRadius) + titleBoxH + rangeBoxH + 4f)
+        {
+            canvas.FontSize = rangeSize;
+            canvas.Font = Microsoft.Maui.Graphics.Font.Default;
+            var range = $"{FormatTime(ctx.DisplayStart)} – {FormatTime(ctx.DisplayEnd)}";
             canvas.DrawString(
                 range,
                 new RectF(x + 10, textTopY + titleBoxH, rw - 20, rangeBoxH),

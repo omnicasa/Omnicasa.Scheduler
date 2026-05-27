@@ -22,7 +22,7 @@ internal static class QuickActionMenu
 
 #if ANDROID
     /// <summary>Shows a native PopupMenu anchored to the body view; invokes the callback with the chosen label.</summary>
-    public static bool ShowAndroid(GraphicsView canvas, PointF location, IReadOnlyList<string> actions, Action<string> onInvoke)
+    public static bool ShowAndroid(GraphicsView canvas, PointF location, IReadOnlyList<ScheduleMenuAction> actions, Action<string> onInvoke)
     {
         _ = location;
         if (canvas.Handler?.PlatformView is not Android.Views.View anchor || anchor.Context is null)
@@ -30,10 +30,28 @@ internal static class QuickActionMenu
             return false;
         }
 
-        var popup = new Android.Widget.PopupMenu(anchor.Context, anchor);
+        var context = anchor.Context;
+        var popup = new Android.Widget.PopupMenu(context, anchor);
+        bool anyIcon = false;
         for (int i = 0; i < actions.Count; i++)
         {
-            popup.Menu?.Add(Android.Views.IMenu.None, i, i, new Java.Lang.String(actions[i]));
+            var menuItem = popup.Menu?.Add(Android.Views.IMenu.None, i, i, new Java.Lang.String(actions[i].Label));
+            var icon = actions[i].Icon;
+            if (menuItem is not null && !string.IsNullOrEmpty(icon) && context.Resources is not null && context.PackageName is not null)
+            {
+                int resId = context.Resources.GetIdentifier(icon, "drawable", context.PackageName);
+                if (resId != 0)
+                {
+                    menuItem.SetIcon(resId);
+                    anyIcon = true;
+                }
+            }
+        }
+
+        // PopupMenu hides icons by default; force them on when any action supplied one (API 29+).
+        if (anyIcon && OperatingSystem.IsAndroidVersionAtLeast(29))
+        {
+            popup.SetForceShowIcon(true);
         }
 
         popup.MenuItemClick += (_, e) =>
@@ -41,7 +59,7 @@ internal static class QuickActionMenu
             int id = e.Item?.ItemId ?? -1;
             if (id >= 0 && id < actions.Count)
             {
-                onInvoke(actions[id]);
+                onInvoke(actions[id].Label);
             }
         };
         popup.Show();
@@ -75,8 +93,8 @@ internal sealed class ScheduleContextMenuDelegate : Foundation.NSObject, UIKit.I
         }
 
         var (item, rect) = hit.Value;
-        var labels = owner.GetItemActions(item);
-        if (labels.Count == 0)
+        var actions = owner.GetItemActions(item);
+        if (actions.Count == 0)
         {
             return null;
         }
@@ -87,11 +105,18 @@ internal sealed class ScheduleContextMenuDelegate : Foundation.NSObject, UIKit.I
             previewProvider: null,
             actionProvider: _ =>
             {
-                var elements = new UIKit.UIMenuElement[labels.Count];
-                for (int i = 0; i < labels.Count; i++)
+                var elements = new UIKit.UIMenuElement[actions.Count];
+                for (int i = 0; i < actions.Count; i++)
                 {
-                    string label = labels[i];
-                    elements[i] = UIKit.UIAction.Create(label, null, null, _ => owner.RaiseItemAction(item, label));
+                    var action = actions[i];
+                    var image = string.IsNullOrEmpty(action.Icon) ? null : UIKit.UIImage.GetSystemImage(action.Icon);
+                    var uiAction = UIKit.UIAction.Create(action.Label, image, null, _ => owner.RaiseItemAction(item, action.Label));
+                    if (action.IsDestructive)
+                    {
+                        uiAction.Attributes = UIKit.UIMenuElementAttributes.Destructive;
+                    }
+
+                    elements[i] = uiAction;
                 }
 
                 return UIKit.UIMenu.Create(elements);

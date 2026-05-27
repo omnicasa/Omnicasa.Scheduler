@@ -131,7 +131,7 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `VerticalOffset` | `0` | Two-way scroll offset (pixels). Bind several pages to one value to keep a `CarouselView` of schedules in sync. |
 | `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
 | `Renderer` | built-in | `ScheduleViewRenderer` — see [Custom rendering](#custom-rendering). |
-| `ItemActionsProvider` | `null` | `Func<IScheduleItem, IReadOnlyList<string>>`; return labels to show a native long-press menu (iOS context menu / Android `PopupMenu`). |
+| `ItemActionsProvider` | `null` | `Func<IScheduleItem, IReadOnlyList<ScheduleMenuAction>>`; return actions (label + optional icon) to show a native long-press menu (iOS context menu / Android `PopupMenu`). |
 | `Tapped` / `LongTapped` | — | Empty-space tap; payload is the `DateTime` at the tap. |
 | `ItemTapped` / `ItemLongTapped` | — | Block tap; payload is the `IScheduleItem`. |
 | `ItemActionInvoked` | — | Fires with the chosen action label from the long-press menu. |
@@ -275,6 +275,30 @@ Notes:
 - `ScheduleTypingContext` / `ScheduleHoldingContext` carry the live `Item`, `Rect`, `BlockColor`, `Theme`; the holding one adds `DisplayStart` / `DisplayEnd` (current drag times) and `IsDragging`.
 - Geometry and hit-testing stay inside the controls, so custom drawing can never desync tap / drag / resize regions — you only control the pixels inside the supplied `Rect`.
 - Leaving `Renderer` unset uses the shared default (`ScheduleViewRenderer.Default` / `DayAgendaRenderer.Default` / `MonthRenderer.Default`).
+
+## Appointment long-press menu (`ItemActionsProvider`)
+
+Return a list of `ScheduleMenuAction`s for an appointment and a long-press shows a **native** menu — an iOS context menu (with the lifted block preview) or an Android `PopupMenu`. The chosen action's `Label` comes back via `ItemActionInvoked`:
+
+```csharp
+schedule.ItemActionsProvider = item => new[]
+{
+    new ScheduleMenuAction("Edit", icon: "pencil"),
+    new ScheduleMenuAction("Duplicate", icon: "doc.on.doc"),
+    new ScheduleMenuAction("Delete", icon: "trash", isDestructive: true),
+};
+
+schedule.ItemActionInvoked += (_, e) =>
+{
+    // e.Item, e.Action  — the appointment and the chosen label
+};
+```
+
+`ScheduleMenuAction` = `Label` + optional `Icon` + `IsDestructive`. **Icons are platform-named:** on iOS the `Icon` is an **SF Symbol** name (`"trash"`), on Android a **drawable resource** name (`"ic_delete"`); unresolved names are ignored. `IsDestructive` styles the item red on iOS. For icons on both platforms, branch in your provider:
+
+```csharp
+icon: DeviceInfo.Platform == DevicePlatform.iOS ? "trash" : "ic_delete"
+```
 
 ## Reschedule by dragging (`HoldingSchedule`)
 

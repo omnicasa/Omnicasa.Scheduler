@@ -12,7 +12,13 @@ public partial class SchedulePage
         Loaded += OnPageLoaded;
 
         // Long-press an appointment to show a native menu (iOS context menu / Android PopupMenu).
-        Schedule.ItemActionsProvider = _ => new[] { "Edit", "Duplicate", "Delete" };
+        Schedule.ItemActionsProvider = _ => new[]
+        {
+            // Icon names: iOS SF Symbols (Android would use drawable resource names).
+            new ScheduleMenuAction("Edit", icon: "pencil"),
+            new ScheduleMenuAction("Duplicate", icon: "doc.on.doc"),
+            new ScheduleMenuAction("Delete", icon: "trash", isDestructive: true),
+        };
         Schedule.ItemActionInvoked += OnItemActionInvoked;
     }
 

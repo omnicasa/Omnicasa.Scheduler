@@ -360,12 +360,13 @@ public class ScheduleView : ContentView
     public event EventHandler<HoldingDroppedEventArgs>? HoldingDropped;
 
     /// <summary>
-    /// Optional provider of long-press menu actions for an appointment. Return the action labels to
-    /// offer; an empty or absent list means no menu (long-press then falls back to
-    /// <see cref="ItemLongTapped"/>). On iOS the labels build a native context menu (UIMenu); on
-    /// Android a native <c>PopupMenu</c>. Selecting one raises <see cref="ItemActionInvoked"/>.
+    /// Optional provider of long-press menu actions for an appointment. Return the actions to offer
+    /// (label + optional icon); an empty or absent list means no menu (long-press then falls back to
+    /// <see cref="ItemLongTapped"/>). On iOS the actions build a native context menu (UIMenu) with
+    /// SF Symbol icons; on Android a native <c>PopupMenu</c>. Selecting one raises
+    /// <see cref="ItemActionInvoked"/> with the chosen <see cref="ScheduleMenuAction.Label"/>.
     /// </summary>
-    public Func<IScheduleItem, IReadOnlyList<string>>? ItemActionsProvider { get; set; }
+    public Func<IScheduleItem, IReadOnlyList<ScheduleMenuAction>>? ItemActionsProvider { get; set; }
 
     /// <summary>First day rendered (inclusive).</summary>
     public DateTime StartDay
@@ -1203,9 +1204,9 @@ public class ScheduleView : ContentView
         return null;
     }
 
-    /// <summary>Returns the action labels for an appointment (empty when no provider or no actions).</summary>
-    internal IReadOnlyList<string> GetItemActions(IScheduleItem item)
-        => ItemActionsProvider?.Invoke(item) ?? Array.Empty<string>();
+    /// <summary>Returns the menu actions for an appointment (empty when no provider or no actions).</summary>
+    internal IReadOnlyList<ScheduleMenuAction> GetItemActions(IScheduleItem item)
+        => ItemActionsProvider?.Invoke(item) ?? Array.Empty<ScheduleMenuAction>();
 
     /// <summary>Raises <see cref="ItemActionInvoked"/> for a chosen action.</summary>
     internal void RaiseItemAction(IScheduleItem item, string action)

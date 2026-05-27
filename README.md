@@ -126,11 +126,18 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `ViewMode` | `7` | Max columns shown (1–7); range is capped to this. |
 | `HourHeight` | `60` | Logical pixels per hour; clamped to `[24, 200]`, pinch to zoom. |
 | `Persons` | `null` | `IList<IPerson>`; when non-empty each day splits into one column per person. |
-| `TypingItem` | `null` | An `ITypingScheduleItem` draft block — shadowed, draggable, resizable. |
+| `TypingItem` | `null` | An `ITypingScheduleItem` draft block — shadowed, draggable, resizable (snaps to grid). |
+| `HoldingSchedule` | `null` | An `IScheduleItem` "held" block — drag to move (free vertical, snap to column) and resize via corner handles. Reports drops via `HoldingDropped`; never mutates the item. |
+| `VerticalOffset` | `0` | Two-way scroll offset (pixels). Bind several pages to one value to keep a `CarouselView` of schedules in sync. |
 | `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
 | `Renderer` | built-in | `ScheduleViewRenderer` — see [Custom rendering](#custom-rendering). |
+| `ItemActionsProvider` | `null` | `Func<IScheduleItem, IReadOnlyList<string>>`; return labels to show a native long-press menu (iOS context menu / Android `PopupMenu`). |
 | `Tapped` / `LongTapped` | — | Empty-space tap; payload is the `DateTime` at the tap. |
 | `ItemTapped` / `ItemLongTapped` | — | Block tap; payload is the `IScheduleItem`. |
+| `ItemActionInvoked` | — | Fires with the chosen action label from the long-press menu. |
+| `HoldingDropped` | — | Fires when the held block is released; payload is `Item`, snapped `Start`/`End`, `PersonId`. |
+
+`ScrollToTimeAsync(timeOfDay, animated)` programmatically scrolls a time to the top.
 
 ### `DayAgendaView`
 
@@ -203,7 +210,7 @@ Month.Theme = new ScheduleTheme
 
 ## Custom rendering
 
-Theming only changes colors and fonts. When you need **different appointment types to draw differently** (or want to restyle headers, the hour grid, the today marker, the draft block, or day cells), override the renderer. `ScheduleView`, `DayAgendaView`, and the calendar views (`MonthCalendarView` / `YearCalendarView`) each expose a `Renderer` property; subclass the matching renderer base and override only the primitives you need — every other primitive keeps the built-in look.
+Theming only changes colors and fonts. When you need **different appointment types to draw differently** (or want to restyle headers, the hour grid, the today marker, the draft block, the held block, or day cells), override the renderer. `ScheduleView`, `DayAgendaView`, and the calendar views (`MonthCalendarView` / `YearCalendarView`) each expose a `Renderer` property; subclass the matching renderer base and override only the primitives you need — every other primitive keeps the built-in look.
 
 The most common case is per-type appointment drawing: override `DrawAppointment`, switch on your concrete model type, and call `base` for the default look.
 
@@ -232,7 +239,7 @@ public sealed class MyRenderer : ScheduleViewRenderer
 
     // Other overridable primitives (defaults reproduce the built-in look):
     //   DrawHeader, DrawHourGrid, DrawColumnSeparators, DrawTodayMarker,
-    //   DrawTypingItem, DrawBackground
+    //   DrawTypingItem, DrawHoldingItem, DrawBackground
 }
 ```
 
@@ -265,8 +272,28 @@ Notes:
 
 - `DayAgendaView` works the same way via `DayAgendaRenderer`; its `DayAgendaAppointmentContext` also exposes `IsGhost` (the drag ghost), `ShowResizeHandle`, and `FontScale`.
 - `MonthDayContext` carries `Date`, `IsToday`, `EventCount`, the resolved `TextColor` / `FontSize` / `Font`, and `Compact`.
+- `ScheduleTypingContext` / `ScheduleHoldingContext` carry the live `Item`, `Rect`, `BlockColor`, `Theme`; the holding one adds `DisplayStart` / `DisplayEnd` (current drag times) and `IsDragging`.
 - Geometry and hit-testing stay inside the controls, so custom drawing can never desync tap / drag / resize regions — you only control the pixels inside the supplied `Rect`.
 - Leaving `Renderer` unset uses the shared default (`ScheduleViewRenderer.Default` / `DayAgendaRenderer.Default` / `MonthRenderer.Default`).
+
+## Reschedule by dragging (`HoldingSchedule`)
+
+Set `HoldingSchedule` to any `IScheduleItem` and it's drawn as a floating block: drag it (free vertically, snapped to the nearest column) and resize it via the corner handles. On release it raises `HoldingDropped` — the control **does not** mutate the item, so your handler decides whether to apply the change:
+
+```csharp
+schedule.HoldingDropped += (_, e) =>
+{
+    // e.Item, e.Start, e.End, e.PersonId  — the snapped drop result
+    if (e.Item is Appointment a)
+    {
+        a.Start = e.Start;     // INotifyPropertyChanged → the block re-renders in place
+        a.End = e.End;
+        a.PersonId = e.PersonId;
+    }
+};
+```
+
+If you don't apply it, the block springs back to its original position (the gesture is reported, not committed).
 
 ## Sample app
 

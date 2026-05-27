@@ -191,6 +191,56 @@ public class ScheduleViewRendererTests
         Assert.Contains("Draft", canvas.Strings);
     }
 
+    private static ScheduleHoldingContext HoldingCtx(RecordingCanvas canvas, RectF rect) =>
+        new ScheduleHoldingContext
+        {
+            Canvas = canvas,
+            Item = new TestScheduleItem { Title = "Held", Start = Day.AddHours(9), End = Day.AddHours(11) },
+            Rect = rect,
+            DisplayStart = Day.AddHours(9),
+            DisplayEnd = Day.AddHours(11),
+            BlockColor = Colors.DodgerBlue,
+            Theme = new ScheduleViewTheme(),
+        };
+
+    [Fact]
+    public void DrawHoldingItem_DrawsShadowBlockResizeHandlesAndTitle()
+    {
+        var canvas = new RecordingCanvas();
+
+        new ScheduleViewRenderer().DrawHoldingItem(HoldingCtx(canvas, new RectF(10, 10, 120, 160)));
+
+        Assert.Equal(1, canvas.ShadowCount);
+        Assert.True(canvas.SaveStateCount >= 1 && canvas.RestoreStateCount >= 1);
+        Assert.True(canvas.FilledRoundedRectangles.Count >= 1);   // the block
+        Assert.Equal(2, canvas.FilledEllipses.Count);             // start + end resize handles
+        Assert.Contains("Held", canvas.Strings);
+    }
+
+    [Fact]
+    public void DrawHoldingItem_TallBlock_AlsoDrawsTimeRange()
+    {
+        var canvas = new RecordingCanvas();
+
+        new ScheduleViewRenderer().DrawHoldingItem(HoldingCtx(canvas, new RectF(0, 0, 120, 200)));
+
+        // Title + a time-range line.
+        Assert.True(canvas.Strings.Count >= 2);
+    }
+
+    [Fact]
+    public void DrawHoldingItem_Override_IsInvokedInsteadOfBase()
+    {
+        var canvas = new RecordingCanvas();
+        var renderer = new HoldingMarkerRenderer();
+
+        renderer.DrawHoldingItem(HoldingCtx(canvas, new RectF(0, 0, 120, 160)));
+
+        Assert.True(renderer.Called);
+        Assert.Empty(canvas.FilledEllipses);   // override drew nothing → base bypassed
+        Assert.Empty(canvas.Strings);
+    }
+
     [Fact]
     public void DrawHeader_DrawsOnePrimaryPerDayGroupAndOneSecondaryPerColumn()
     {
@@ -249,5 +299,12 @@ public class ScheduleViewRendererTests
         public bool Called { get; private set; }
 
         public override void DrawAppointment(ScheduleAppointmentContext ctx) => Called = true;
+    }
+
+    private sealed class HoldingMarkerRenderer : ScheduleViewRenderer
+    {
+        public bool Called { get; private set; }
+
+        public override void DrawHoldingItem(ScheduleHoldingContext ctx) => Called = true;
     }
 }

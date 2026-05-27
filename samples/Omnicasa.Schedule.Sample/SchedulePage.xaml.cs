@@ -21,6 +21,18 @@ public partial class SchedulePage
         await DisplayAlert(e.Item.Title ?? "(no title)", $"Action: {e.Action}", "OK");
     }
 
+    private void OnHoldingDropped(object? sender, HoldingDroppedEventArgs e)
+    {
+        // Event-only: the control doesn't mutate the item, so apply the drop here to make it stick.
+        // The item is an Appointment (INotifyPropertyChanged), so the block re-renders at the new spot.
+        if (e.Item is Appointment appt)
+        {
+            appt.Start = e.Start;
+            appt.End = e.End;
+            appt.PersonId = e.PersonId;
+        }
+    }
+
     private void OnPageLoaded(object? sender, EventArgs e)
     {
         // Open near the current time (one hour of lead-in), clamped to midnight. Deferred so the

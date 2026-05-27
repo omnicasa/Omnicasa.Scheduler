@@ -30,6 +30,10 @@ public class SchedulePageViewModel : INotifyPropertyChanged
 
     private ITypingScheduleItem? typingItem;
 
+    private bool showHolding;
+
+    private IScheduleItem? holdingSchedule;
+
     /// <summary>Initializes a new instance of the <see cref="SchedulePageViewModel"/> class.</summary>
     public SchedulePageViewModel()
     {
@@ -139,6 +143,35 @@ public class SchedulePageViewModel : INotifyPropertyChanged
     {
         get => typingItem;
         private set => Set(ref typingItem, value);
+    }
+
+    /// <summary>Toggle that creates / clears a held block bound to <see cref="ScheduleView.HoldingSchedule"/>.</summary>
+    public bool ShowHolding
+    {
+        get => showHolding;
+        set
+        {
+            if (Set(ref showHolding, value))
+            {
+                HoldingSchedule = value
+                    ? new Appointment
+                    {
+                        Id = "hold",
+                        Title = "Hold me",
+                        Start = DateTime.Today.AddHours(14),
+                        End = DateTime.Today.AddHours(15),
+                        Color = Color.FromArgb("#FF9500"),
+                    }
+                    : null;
+            }
+        }
+    }
+
+    /// <summary>Bound to <see cref="ScheduleView.HoldingSchedule"/>.</summary>
+    public IScheduleItem? HoldingSchedule
+    {
+        get => holdingSchedule;
+        private set => Set(ref holdingSchedule, value);
     }
 
     /// <summary>Friendly date range label for the header (derived).</summary>

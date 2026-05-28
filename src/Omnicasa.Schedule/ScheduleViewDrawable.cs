@@ -57,6 +57,15 @@ public sealed class ScheduleRenderContext
     /// </summary>
     public float TypingScale { get; set; } = 1f;
 
+    /// <summary>All-day / cross-date bars shown in the panel above the time grid.</summary>
+    public IReadOnlyList<AllDayBar> AllDayBars { get; set; } = Array.Empty<AllDayBar>();
+
+    /// <summary>Number of visible day columns (used to map a bar's day span to X). 0 disables the panel.</summary>
+    public int DayCount { get; set; }
+
+    /// <summary>Height of one all-day lane, in logical pixels.</summary>
+    public float AllDayLaneHeight { get; set; } = 22f;
+
     /// <summary>Optional held item drawn as a floating, draggable block.</summary>
     public IScheduleItem? HoldingItem { get; set; }
 
@@ -84,6 +93,73 @@ public sealed class ScheduleHeaderDrawable : IDrawable
     {
         Renderer.DrawBackground(canvas, dirtyRect, Context.Theme);
         Renderer.DrawHeader(canvas, dirtyRect, Context);
+    }
+}
+
+/// <summary>Renders the all-day / cross-date panel (horizontal bars) shown above the time grid.</summary>
+public sealed class ScheduleAllDayDrawable : IDrawable
+{
+    private readonly List<(IScheduleItem Item, RectF Rect)> hitMap = new List<(IScheduleItem, RectF)>();
+
+    /// <summary>Shared render state.</summary>
+    public ScheduleRenderContext Context { get; set; } = new ScheduleRenderContext();
+
+    /// <summary>Painter; defaults to the built-in look.</summary>
+    public ScheduleViewRenderer Renderer { get; set; } = ScheduleViewRenderer.Default;
+
+    /// <summary>Hit map populated after every <see cref="Draw"/>.</summary>
+    public IReadOnlyList<(IScheduleItem Item, RectF Rect)> HitMap => hitMap;
+
+    /// <inheritdoc />
+    public void Draw(ICanvas canvas, RectF dirtyRect)
+    {
+        hitMap.Clear();
+
+        var ctx = Context;
+        var theme = ctx.Theme;
+        float w = dirtyRect.Width;
+        float h = dirtyRect.Height;
+
+        Renderer.DrawBackground(canvas, dirtyRect, theme);
+
+        float contentX = ctx.TimeRailWidth;
+        float contentW = w - contentX;
+        if (ctx.DayCount <= 0 || contentW <= 0 || ctx.AllDayBars.Count == 0)
+        {
+            return;
+        }
+
+        float dayWidth = contentW / ctx.DayCount;
+        float laneH = ctx.AllDayLaneHeight;
+
+        // "all-day" label in the time-rail gutter.
+        canvas.FontColor = theme.Muted;
+        canvas.FontSize = 10f;
+        canvas.Font = Microsoft.Maui.Graphics.Font.Default;
+        canvas.DrawString("all-day", 4, 0, contentX - 8, MathF.Min(laneH, h), HorizontalAlignment.Right, VerticalAlignment.Center);
+
+        foreach (var bar in ctx.AllDayBars)
+        {
+            float x = contentX + (bar.StartDay * dayWidth) + 2;
+            float bw = ((bar.EndDay - bar.StartDay + 1) * dayWidth) - 4;
+            float y = (bar.Lane * laneH) + 2;
+            float bh = laneH - 4;
+            var rect = new RectF(x, y, bw, bh);
+            hitMap.Add((bar.Item, rect));
+
+            Renderer.DrawAllDayItem(new ScheduleAllDayContext
+            {
+                Canvas = canvas,
+                Item = bar.Item,
+                Rect = rect,
+                BlockColor = bar.Item.Color ?? theme.Accent,
+                Theme = theme,
+            });
+        }
+
+        canvas.StrokeColor = theme.GridLine;
+        canvas.StrokeSize = 0.5f;
+        canvas.DrawLine(0, h - 0.5f, w, h - 0.5f);
     }
 }
 

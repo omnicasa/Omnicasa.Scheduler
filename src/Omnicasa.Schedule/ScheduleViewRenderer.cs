@@ -77,6 +77,25 @@ public sealed class ScheduleHoldingContext
     public bool IsDragging { get; init; }
 }
 
+/// <summary>Paints one all-day / cross-date bar in the panel above <see cref="ScheduleView"/>'s grid.</summary>
+public sealed class ScheduleAllDayContext
+{
+    /// <summary>Target canvas.</summary>
+    public ICanvas Canvas { get; init; } = null!;
+
+    /// <summary>The all-day / multi-day item being drawn.</summary>
+    public IScheduleItem Item { get; init; } = null!;
+
+    /// <summary>Rectangle the bar occupies (spanning its day columns, within its lane).</summary>
+    public RectF Rect { get; init; }
+
+    /// <summary>Resolved bar color (item color, else theme accent).</summary>
+    public Color BlockColor { get; init; } = Colors.Gray;
+
+    /// <summary>Active theme (colors + font sizes).</summary>
+    public ScheduleViewTheme Theme { get; init; } = new ScheduleViewTheme();
+}
+
 /// <summary>
 /// Pluggable painter for <see cref="ScheduleView"/>. Subclass and override only the primitives you
 /// need; each method's default reproduces the built-in look. For appointments that should render
@@ -481,6 +500,30 @@ public class ScheduleViewRenderer
                 HorizontalAlignment.Left,
                 VerticalAlignment.Top);
         }
+    }
+
+    /// <summary>
+    /// Draws one all-day / cross-date bar. Default is a filled rounded bar with the title. Override
+    /// and switch on <see cref="ScheduleAllDayContext.Item"/> for a custom look.
+    /// </summary>
+    public virtual void DrawAllDayItem(ScheduleAllDayContext ctx)
+    {
+        var canvas = ctx.Canvas;
+        var rect = ctx.Rect;
+        var bg = ctx.BlockColor;
+
+        canvas.FillColor = bg;
+        canvas.FillRoundedRectangle(rect, 4);
+
+        var textColor = new Color(1f, 1f, 1f, 0.95f);
+        canvas.FontColor = textColor;
+        canvas.FontSize = (float)ctx.Theme.BlockRangeFontSize;
+        canvas.Font = Microsoft.Maui.Graphics.Font.DefaultBold;
+        canvas.DrawString(
+            ctx.Item.Title ?? string.Empty,
+            new RectF(rect.X + 6, rect.Y, rect.Width - 10, rect.Height),
+            HorizontalAlignment.Left,
+            VerticalAlignment.Center);
     }
 
     /// <summary>Formats a time as a short "h tt" / "h:mm tt" lowercase string.</summary>

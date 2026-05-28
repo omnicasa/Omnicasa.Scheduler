@@ -95,6 +95,8 @@ public class ScheduleView : ContentView
 
     private const float LongPressMoveThreshold = 12f;
 
+    private const float AllDayLaneHeight = 22f;
+
     /// <summary>Bindable property for <see cref="StartDay"/>.</summary>
     public static readonly BindableProperty StartDayProperty =
         BindableProperty.Create(
@@ -205,7 +207,11 @@ public class ScheduleView : ContentView
 
     private readonly ScheduleHeaderDrawable headerDrawable;
 
+    private readonly ScheduleAllDayDrawable allDayDrawable;
+
     private readonly GraphicsView headerCanvas;
+
+    private readonly GraphicsView allDayCanvas;
 
     private readonly GraphicsView bodyCanvas;
 
@@ -275,6 +281,18 @@ public class ScheduleView : ContentView
             InputTransparent = true,
         };
 
+        allDayDrawable = new ScheduleAllDayDrawable { Context = context };
+
+        allDayCanvas = new GraphicsView
+        {
+            Drawable = allDayDrawable,
+            BackgroundColor = Colors.Transparent,
+            IsVisible = false,
+        };
+        var allDayTap = new TapGestureRecognizer();
+        allDayTap.Tapped += OnAllDayTapped;
+        allDayCanvas.GestureRecognizers.Add(allDayTap);
+
         bodyCanvas = new GraphicsView
         {
             Drawable = bodyDrawable,
@@ -319,13 +337,16 @@ public class ScheduleView : ContentView
             RowDefinitions =
             {
                 new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
                 new RowDefinition { Height = GridLength.Star },
             },
         };
         root.Children.Add(headerCanvas);
         Grid.SetRow(headerCanvas, 0);
+        root.Children.Add(allDayCanvas);
+        Grid.SetRow(allDayCanvas, 1);
         root.Children.Add(bodyScroll);
-        Grid.SetRow(bodyScroll, 1);
+        Grid.SetRow(bodyScroll, 2);
         Content = root;
 
         Loaded += (_, _) =>
@@ -648,8 +669,29 @@ public class ScheduleView : ContentView
         var renderer = Renderer;
         bodyDrawable.Renderer = renderer;
         headerDrawable.Renderer = renderer;
+        allDayDrawable.Renderer = renderer;
         headerCanvas.Invalidate();
+        allDayCanvas.Invalidate();
         bodyCanvas.Invalidate();
+    }
+
+    private void OnAllDayTapped(object? sender, TappedEventArgs e)
+    {
+        var pt = e.GetPosition(allDayCanvas);
+        if (pt is null)
+        {
+            return;
+        }
+
+        var p = new PointF((float)pt.Value.X, (float)pt.Value.Y);
+        foreach (var (item, rect) in allDayDrawable.HitMap)
+        {
+            if (rect.Contains(p))
+            {
+                ItemTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
+                return;
+            }
+        }
     }
 
     // The user (or momentum) scrolled the body: publish the new offset so any view bound to the
@@ -735,7 +777,7 @@ public class ScheduleView : ContentView
             var isToday = dayOnly == today;
 
             var dayItems = items
-                .Where(a => a.Start < dayEnd && a.End > dayStart && !a.IsAllDay)
+                .Where(a => a.Start < dayEnd && a.End > dayStart && !AllDayLayout.IsSpanning(a))
                 .ToList();
 
             if (personsMode)
@@ -775,7 +817,24 @@ public class ScheduleView : ContentView
         context.Columns = columns;
         context.Now = DateTime.Now;
 
+        // All-day / cross-date items go in the panel above the grid, spanning the days they cover.
+        var bars = AllDayLayout.Layout(items.Where(AllDayLayout.IsSpanning), DateOnly.FromDateTime(rangeStart), days);
+        int laneCount = 0;
+        foreach (var bar in bars)
+        {
+            laneCount = Math.Max(laneCount, bar.Lane + 1);
+        }
+
+        context.AllDayBars = bars;
+        context.DayCount = days;
+        context.AllDayLaneHeight = AllDayLaneHeight;
+
+        float panelHeight = laneCount > 0 ? (laneCount * AllDayLaneHeight) + 6f : 0f;
+        allDayCanvas.HeightRequest = panelHeight;
+        allDayCanvas.IsVisible = panelHeight > 0;
+
         headerCanvas.Invalidate();
+        allDayCanvas.Invalidate();
         bodyCanvas.Invalidate();
     }
 

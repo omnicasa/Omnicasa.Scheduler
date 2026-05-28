@@ -10,7 +10,7 @@ Smooth calendar and agenda controls for .NET MAUI (iOS + Android), inspired by t
 
 The package ships five drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
 
-- **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
+- **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, an all-day / cross-date bar above the grid, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
 - **`DayAgendaView`** — day / 3-day / 5-day / week agenda with horizontal swipe between pages, pinch-to-zoom on the time rail, and tap / drag / resize on appointment blocks.
 - **`AgendaListView`** — an infinitely-scrolling agenda: one row per day with the date on the left and that day's appointments on the right ("no events" placeholders for empty days), built on `CollectionView`.
 - **`MonthCalendarView`** — full-size months stacked vertically with continuous scroll (one month per screen), event-density dots, and per-day tap. Pairs with the year view for a year → month → day drill-down.
@@ -122,7 +122,7 @@ Day.AppointmentSource  = Year.AppointmentSource;
 
 | Property | Default | Description |
 | --- | --- | --- |
-| `ItemsSource` | `null` | Any `IEnumerable` of objects implementing `IScheduleItem`. |
+| `ItemsSource` | `null` | Any `IEnumerable` of objects implementing `IScheduleItem`. All-day and cross-date (multi-day) items render in an **all-day panel** above the grid, spanning the days they cover; everything else is an intraday block. |
 | `StartDay` / `EndDay` | today / +6 days | Inclusive viewport range. |
 | `ViewMode` | `7` | Max columns shown (1–7); range is capped to this. |
 | `HourHeight` | `60` | Logical pixels per hour; clamped to `[24, 200]`, pinch to zoom. |
@@ -280,7 +280,7 @@ public sealed class MyRenderer : ScheduleViewRenderer
 
     // Other overridable primitives (defaults reproduce the built-in look):
     //   DrawHeader, DrawHourGrid, DrawColumnSeparators, DrawTodayMarker,
-    //   DrawTypingItem, DrawHoldingItem, DrawBackground
+    //   DrawTypingItem, DrawHoldingItem, DrawAllDayItem, DrawBackground
 }
 ```
 

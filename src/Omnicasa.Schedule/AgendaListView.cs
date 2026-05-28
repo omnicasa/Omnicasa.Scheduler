@@ -59,6 +59,24 @@ public class AgendaListView : ContentView
     public static readonly BindableProperty DateTemplateProperty =
         BindableProperty.Create(nameof(DateTemplate), typeof(DataTemplate), typeof(AgendaListView), null);
 
+    /// <summary>Bindable property for <see cref="ShowEmptyDays"/>.</summary>
+    public static readonly BindableProperty ShowEmptyDaysProperty =
+        BindableProperty.Create(
+            nameof(ShowEmptyDays),
+            typeof(bool),
+            typeof(AgendaListView),
+            true,
+            propertyChanged: (b, _, _) => ((AgendaListView)b).RebuildWindow());
+
+    /// <summary>Bindable property for <see cref="LimitToItemsSource"/>.</summary>
+    public static readonly BindableProperty LimitToItemsSourceProperty =
+        BindableProperty.Create(
+            nameof(LimitToItemsSource),
+            typeof(bool),
+            typeof(AgendaListView),
+            false,
+            propertyChanged: (b, _, _) => ((AgendaListView)b).RebuildWindow());
+
     private readonly ScheduleTheme fallbackTheme = new ScheduleTheme();
 
     private readonly ObservableCollection<AgendaRow> rows = new ObservableCollection<AgendaRow>();
@@ -173,6 +191,24 @@ public class AgendaListView : ContentView
         set => SetValue(DateTemplateProperty, value);
     }
 
+    /// <summary>Gets or sets a value indicating whether days with no appointments render a placeholder row. When false, empty days are skipped.</summary>
+    public bool ShowEmptyDays
+    {
+        get => (bool)GetValue(ShowEmptyDaysProperty);
+        set => SetValue(ShowEmptyDaysProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the scroll range is clamped to the date range of
+    /// <see cref="ItemsSource"/> (first item's start day .. last item's end day). When false, the
+    /// list scrolls infinitely in both directions.
+    /// </summary>
+    public bool LimitToItemsSource
+    {
+        get => (bool)GetValue(LimitToItemsSourceProperty);
+        set => SetValue(LimitToItemsSourceProperty, value);
+    }
+
     /// <summary>Scrolls so the given day is at the top, loading it into the window first if needed.</summary>
     /// <param name="date">Target day.</param>
     /// <param name="animated">Whether to animate the scroll.</param>
@@ -181,6 +217,18 @@ public class AgendaListView : ContentView
         if (!built)
         {
             return;
+        }
+
+        var min = EffectiveMin();
+        var max = EffectiveMax();
+        if (min is { } mn && date < mn)
+        {
+            date = mn;
+        }
+
+        if (max is { } mx && date > mx)
+        {
+            date = mx;
         }
 
         if (date < firstDay)
@@ -192,7 +240,7 @@ public class AgendaListView : ContentView
             AppendDays(lastDay.AddDays(1), date);
         }
 
-        int index = IndexOfDay(date);
+        int index = IndexOfDayOrAfter(date);
         if (index >= 0)
         {
             collection.ScrollTo(index, -1, ScrollToPosition.Start, animated);
@@ -202,27 +250,94 @@ public class AgendaListView : ContentView
     private IEnumerable<IScheduleItem> Items()
         => ItemsSource?.Cast<object?>().OfType<IScheduleItem>() ?? Enumerable.Empty<IScheduleItem>();
 
-    private int IndexOfDay(DateOnly date)
+    // First row whose date equals (or, failing that, is the first after) the target. -1 if none.
+    private int IndexOfDayOrAfter(DateOnly date)
     {
+        int after = -1;
         for (int i = 0; i < rows.Count; i++)
         {
             if (rows[i].Date == date)
             {
                 return i;
             }
+
+            if (after < 0 && rows[i].Date > date)
+            {
+                after = i;
+            }
         }
 
-        return -1;
+        return after;
+    }
+
+    // Effective scroll bounds: the items' date range when LimitToItemsSource, else unbounded.
+    private DateOnly? EffectiveMin()
+        => LimitToItemsSource ? ItemsRange()?.Min : null;
+
+    private DateOnly? EffectiveMax()
+        => LimitToItemsSource ? ItemsRange()?.Max : null;
+
+    private (DateOnly Min, DateOnly Max)? ItemsRange()
+    {
+        DateOnly? min = null;
+        DateOnly? max = null;
+        foreach (var item in Items())
+        {
+            var s = DateOnly.FromDateTime(item.Start);
+            var e = DateOnly.FromDateTime(item.End);
+            if (e < s)
+            {
+                e = s;
+            }
+
+            if (min is null || s < min)
+            {
+                min = s;
+            }
+
+            if (max is null || e > max)
+            {
+                max = e;
+            }
+        }
+
+        return min is { } mn && max is { } mx ? (mn, mx) : null;
     }
 
     private void RebuildWindow()
     {
         var anchor = DateOnly.FromDateTime(AnchorDate.Date);
+        var min = EffectiveMin();
+        var max = EffectiveMax();
+        if (min is { } mn && anchor < mn)
+        {
+            anchor = mn;
+        }
+
+        if (max is { } mx && anchor > mx)
+        {
+            anchor = mx;
+        }
+
         firstDay = anchor.AddDays(-Math.Max(0, InitialBackDays));
         lastDay = anchor.AddDays(Math.Max(0, InitialForwardDays));
+        if (min is { } mn2 && firstDay < mn2)
+        {
+            firstDay = mn2;
+        }
+
+        if (max is { } mx2 && lastDay > mx2)
+        {
+            lastDay = mx2;
+        }
+
+        if (lastDay < firstDay)
+        {
+            lastDay = firstDay;
+        }
 
         rows.Clear();
-        foreach (var row in AgendaGrouping.BuildRows(Items(), firstDay, lastDay, EmptyDayText, Theme))
+        foreach (var row in AgendaGrouping.BuildRows(Items(), firstDay, lastDay, EmptyDayText, Theme, ShowEmptyDays))
         {
             rows.Add(row);
         }
@@ -230,12 +345,21 @@ public class AgendaListView : ContentView
         built = true;
 
         stickyOverlay.BackgroundColor = Theme.Background;
-        int anchorIndex = IndexOfDay(anchor);
+        int anchorIndex = IndexOfDayOrAfter(anchor);
+        if (anchorIndex < 0 && rows.Count > 0)
+        {
+            anchorIndex = 0;
+        }
+
         if (anchorIndex >= 0)
         {
             overlayDate = rows[anchorIndex].Date;
             UpdateOverlay(rows[anchorIndex]);
             stickyOverlay.IsVisible = true;
+        }
+        else
+        {
+            stickyOverlay.IsVisible = false;
         }
 
         // Defer so the CollectionView has its rows before we position on the anchor.
@@ -245,6 +369,11 @@ public class AgendaListView : ContentView
     private void ExtendForward()
     {
         if (extending || !built)
+        {
+            return;
+        }
+
+        if (EffectiveMax() is { } max && lastDay >= max)
         {
             return;
         }
@@ -261,20 +390,34 @@ public class AgendaListView : ContentView
             return;
         }
 
+        if (EffectiveMin() is { } min && firstDay <= min)
+        {
+            return;
+        }
+
         extending = true;
 
-        var newRows = AgendaGrouping.BuildRows(Items(), firstDay.AddDays(-Math.Max(1, PageSize)), firstDay.AddDays(-1), EmptyDayText, Theme);
-        if (newRows.Count > 0)
+        var from = firstDay.AddDays(-Math.Max(1, PageSize));
+        if (EffectiveMin() is { } mn && from < mn)
         {
-            for (int i = newRows.Count - 1; i >= 0; i--)
+            from = mn;
+        }
+
+        var to = firstDay.AddDays(-1);
+        if (to >= from)
+        {
+            var newRows = AgendaGrouping.BuildRows(Items(), from, to, EmptyDayText, Theme, ShowEmptyDays);
+            firstDay = from;   // advance the window even across empty stretches
+            if (newRows.Count > 0)
             {
-                rows.Insert(0, newRows[i]);
+                for (int i = newRows.Count - 1; i >= 0; i--)
+                {
+                    rows.Insert(0, newRows[i]);
+                }
+
+                // Keep the viewport steady: the previously-first row is now at newRows.Count.
+                Dispatcher.Dispatch(() => collection.ScrollTo(newRows.Count, -1, ScrollToPosition.Start, animate: false));
             }
-
-            firstDay = newRows[0].Date;
-
-            // Keep the viewport steady: the previously-first row is now at newRows.Count.
-            Dispatcher.Dispatch(() => collection.ScrollTo(newRows.Count, -1, ScrollToPosition.Start, animate: false));
         }
 
         extending = false;
@@ -282,12 +425,17 @@ public class AgendaListView : ContentView
 
     private void AppendDays(DateOnly from, DateOnly to)
     {
+        if (EffectiveMax() is { } max && to > max)
+        {
+            to = max;
+        }
+
         if (to < from)
         {
             return;
         }
 
-        foreach (var row in AgendaGrouping.BuildRows(Items(), from, to, EmptyDayText, Theme))
+        foreach (var row in AgendaGrouping.BuildRows(Items(), from, to, EmptyDayText, Theme, ShowEmptyDays))
         {
             rows.Add(row);
         }
@@ -297,12 +445,17 @@ public class AgendaListView : ContentView
 
     private void PrependDays(DateOnly from, DateOnly to)
     {
+        if (EffectiveMin() is { } min && from < min)
+        {
+            from = min;
+        }
+
         if (to < from)
         {
             return;
         }
 
-        var newRows = AgendaGrouping.BuildRows(Items(), from, to, EmptyDayText, Theme);
+        var newRows = AgendaGrouping.BuildRows(Items(), from, to, EmptyDayText, Theme, ShowEmptyDays);
         for (int i = newRows.Count - 1; i >= 0; i--)
         {
             rows.Insert(0, newRows[i]);

@@ -48,6 +48,26 @@ public sealed class InMemoryAppointmentSource : IAppointmentSource
         int[] durationChoices = new[] { 30, 45, 60, 90, 120 };
         string[] personIds = new[] { "p1", "p2", "p3" };
         var today = DateTime.Today;
+
+        // A few all-day / cross-date items so the all-day panel is exercised.
+        items.Add(new Appointment
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Title = "Holiday",
+            IsAllDay = true,
+            Start = today.Date,
+            End = today.Date.AddDays(1),
+            Color = Color.FromArgb("#34C759"),
+        });
+        items.Add(new Appointment
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Title = "Conference trip",
+            Start = today.Date.AddDays(1).AddHours(14),
+            End = today.Date.AddDays(3).AddHours(11),
+            Color = Color.FromArgb("#5856D6"),
+        });
+
         for (int d = -90; d <= 180; d++)
         {
             var day = today.AddDays(d);

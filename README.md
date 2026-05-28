@@ -8,10 +8,11 @@ Smooth calendar and agenda controls for .NET MAUI (iOS + Android), inspired by t
 
 📦 **NuGet:** <https://www.nuget.org/packages/Omnicasa.Schedule>
 
-The package ships four drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
+The package ships five drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
 
 - **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
 - **`DayAgendaView`** — day / 3-day / 5-day / week agenda with horizontal swipe between pages, pinch-to-zoom on the time rail, and tap / drag / resize on appointment blocks.
+- **`AgendaListView`** — an infinitely-scrolling agenda: one row per day with the date on the left and that day's appointments on the right ("no events" placeholders for empty days), built on `CollectionView`.
 - **`MonthCalendarView`** — full-size months stacked vertically with continuous scroll (one month per screen), event-density dots, and per-day tap. Pairs with the year view for a year → month → day drill-down.
 - **`YearCalendarView`** — scrollable year-at-a-glance grid with 12 months per year and event-density dots.
 
@@ -154,6 +155,46 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `Renderer` | built-in | `DayAgendaRenderer` — see [Custom rendering](#custom-rendering). |
 | `AppointmentTapped` event | — | Tap an appointment block. |
 | `AppointmentChanged` event | — | Fired after a drag or resize commit. |
+
+### `AgendaListView`
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `ItemsSource` | `null` | `IEnumerable` of `IScheduleItem`; grouped by day. |
+| `AnchorDate` | today | Day the list is centered on when first built. |
+| `EmptyDayText` | `"No events"` | Placeholder text shown on days with no items. |
+| `ItemTemplate` | built-in | `DataTemplate` for one appointment on the right (binds to `AgendaEntry`). |
+| `DateTemplate` | built-in | `DataTemplate` for the date column on the left (binds to `AgendaRow`). |
+| `Theme` | built-in | `ScheduleTheme` for the default templates. |
+| `InitialBackDays` / `InitialForwardDays` / `PageSize` | 14 / 30 / 14 | Window sizing and the increment loaded at each edge. |
+| `ItemTapped` event | — | Tap an appointment; payload is the `IScheduleItem` (placeholders ignored). |
+| `ScrollToDate(date, animated)` | — | Scroll a day to the top (loads it into the window first). |
+
+The date sits on the left, that day's appointments on the right (the date renders once per day; the current day stays pinned at the top-left). Multi-day items appear on every day they span; the list extends infinitely as you scroll up/down. Internally it's a flat, fully-virtualized `CollectionView` (one row per appointment), which keeps scrolling smooth.
+
+Since this is a `CollectionView`, not a canvas, customization is via **`DataTemplate`s** rather than a `Renderer`:
+
+```xml
+<sched:AgendaListView ItemsSource="{Binding Items}" ItemTapped="OnItemTapped">
+
+    <!-- appointment cell (right); binds to AgendaEntry: Title, TimeText, Accent, ShowAccent, Item -->
+    <sched:AgendaListView.ItemTemplate>
+        <DataTemplate x:DataType="sched:AgendaEntry">
+            <Label Text="{Binding Title}" />
+        </DataTemplate>
+    </sched:AgendaListView.ItemTemplate>
+
+    <!-- date column (left); binds to AgendaRow: WeekdayText, DayNumberText, HeaderColor, Date, ShowDate -->
+    <sched:AgendaListView.DateTemplate>
+        <DataTemplate x:DataType="sched:AgendaRow">
+            <Label Text="{Binding DayNumberText}" TextColor="{Binding HeaderColor}" FontSize="24" />
+        </DataTemplate>
+    </sched:AgendaListView.DateTemplate>
+
+</sched:AgendaListView>
+```
+
+`ItemTapped` keeps firing with a custom `ItemTemplate` (the tap is on the whole row, not the default cell). Both templates are materialized once per pooled row — keep them shallow for smooth scrolling.
 
 ### `MonthCalendarView`
 

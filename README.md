@@ -18,13 +18,13 @@ The package ships five drop-in controls. Items are bound through small interface
 
 ## Screenshots
 
-| Year | Day | Multi-day |
-| :--: | :--: | :--: |
-| ![Year calendar](screenshots/year.png) | ![Day agenda](screenshots/day.png) | ![3-day view](screenshots/multi-day.png) |
+| Year |                     Day                     | Multi-day |
+| :--: |:-------------------------------------------:| :--: |
+| ![Year calendar](screenshots/year.png) | ![Agenda List](screenshots/agenda-list.png) | ![3-day view](screenshots/multi-day.png) |
 
-|                  Cross-dates                  |                  Quick-actions                   |                   Widget                   |
-|:---------------------------------------------:|:------------------------------------------------:|:------------------------------------------:|
-| ![Year calendar](screenshots/cross-dates.png) | ![Day agenda](screenshots/quick_action_menu.png) | ![3-day view](screenshots/agenda-list.png) |
+|                 Cross-dates                 |                  Quick-actions                   |                Widget                 |
+|:-------------------------------------------:|:------------------------------------------------:|:-------------------------------------:|
+| ![Cross dates](screenshots/cross-dates.png) | ![Day agenda](screenshots/quick_action_menu.png) |   ![Widget](screenshots/widget.png)   |
 ## Targets
 
 - `net9.0-android` (API 26+)

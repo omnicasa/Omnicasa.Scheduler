@@ -1,0 +1,8 @@
+; Widget files are native reference deliverables (copied into the host app later),
+; not part of this repo's lint surface. Silence analyzer style rules here so they can be
+; linked into the sample/tests for testing without tripping StyleCop.
+root = true
+
+[*.cs]
+dotnet_analyzer_diagnostic.severity = none
+dotnet_diagnostic.SA1412.severity = none

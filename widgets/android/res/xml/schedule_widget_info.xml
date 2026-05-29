@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppWidgetProviderInfo for the schedule widget. Place at Platforms/Android/Resources/xml/.
+  Sized for a large, resizable widget; update period 0 (the app refreshes via broadcast, like the
+  agenda widget, since the OS minimum is 30 min).
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:initialLayout="@layout/schedule_widget_layout"
+    android:updatePeriodMillis="0"
+    android:previewLayout="@layout/schedule_widget_layout" />

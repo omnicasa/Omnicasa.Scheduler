@@ -150,16 +150,18 @@ public static class AgendaGrouping
     /// <param name="to">Inclusive last day.</param>
     /// <param name="emptyText">Placeholder text for days with no items.</param>
     /// <param name="theme">Theme used to resolve colors.</param>
+    /// <param name="includeEmptyDays">When false, days with no items are omitted entirely (no placeholder row).</param>
     /// <returns>Flat rows in ascending date order.</returns>
     public static IReadOnlyList<AgendaRow> BuildRows(
         IEnumerable<IScheduleItem> items,
         DateOnly from,
         DateOnly to,
         string emptyText,
-        ScheduleTheme theme)
+        ScheduleTheme theme,
+        bool includeEmptyDays = true)
     {
         var rows = new List<AgendaRow>();
-        foreach (var day in Build(items, from, to, emptyText, theme))
+        foreach (var day in Build(items, from, to, emptyText, theme, includeEmptyDays))
         {
             for (int i = 0; i < day.Count; i++)
             {
@@ -180,13 +182,15 @@ public static class AgendaGrouping
     /// <param name="to">Inclusive last day.</param>
     /// <param name="emptyText">Placeholder text for days with no items.</param>
     /// <param name="theme">Theme used to resolve colors.</param>
+    /// <param name="includeEmptyDays">When false, days with no items are omitted entirely (no placeholder).</param>
     /// <returns>One group per day, in ascending date order.</returns>
     public static IReadOnlyList<AgendaDayGroup> Build(
         IEnumerable<IScheduleItem> items,
         DateOnly from,
         DateOnly to,
         string emptyText,
-        ScheduleTheme theme)
+        ScheduleTheme theme,
+        bool includeEmptyDays = true)
     {
         var byDay = new Dictionary<DateOnly, List<IScheduleItem>>();
         foreach (var item in items)
@@ -221,14 +225,20 @@ public static class AgendaGrouping
         var result = new List<AgendaDayGroup>();
         for (var d = from; d <= to; d = d.AddDays(1))
         {
+            bool hasItems = byDay.TryGetValue(d, out var dayItems);
+            if (!hasItems && !includeEmptyDays)
+            {
+                continue;
+            }
+
             bool isToday = d == today;
             var header = HeaderFor(d, isToday);
             var headerColor = isToday ? theme.Today : theme.Foreground;
             var group = new AgendaDayGroup(d, header, isToday, headerColor);
 
-            if (byDay.TryGetValue(d, out var dayItems))
+            if (hasItems)
             {
-                foreach (var item in dayItems.OrderBy(a => a.Start).ThenBy(a => a.End))
+                foreach (var item in dayItems!.OrderBy(a => a.Start).ThenBy(a => a.End))
                 {
                     group.Add(AgendaEntry.ForItem(item, theme));
                 }

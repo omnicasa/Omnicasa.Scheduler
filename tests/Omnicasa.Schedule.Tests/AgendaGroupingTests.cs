@@ -116,6 +116,19 @@ public class AgendaGroupingTests
     }
 
     [Fact]
+    public void BuildRows_IncludeEmptyDaysFalse_SkipsDaysWithoutItems()
+    {
+        var d = new DateOnly(2026, 5, 27);
+        var items = new IScheduleItem[] { Item(d, 9, 10, "a") };
+
+        var rows = AgendaGrouping.BuildRows(items, From, To, "No events", Theme, includeEmptyDays: false);
+
+        var row = Assert.Single(rows);                 // only the 27th has an item
+        Assert.Equal(d, row.Date);
+        Assert.False(row.Entry.IsPlaceholder);
+    }
+
+    [Fact]
     public void BuildRows_RowCarriesDayDateMetadataForTheDateColumn()
     {
         var d = new DateOnly(2026, 5, 26);

@@ -163,6 +163,8 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `ItemsSource` | `null` | `IEnumerable` of `IScheduleItem`; grouped by day. |
 | `AnchorDate` | today | Day the list is centered on when first built. |
 | `EmptyDayText` | `"No events"` | Placeholder text shown on days with no items. |
+| `ShowEmptyDays` | `true` | Render a "no events" placeholder row for empty days; `false` skips them. |
+| `LimitToItemsSource` | `false` | Clamp the infinite scroll to the items' date range (first start … last end); `false` scrolls forever. |
 | `ItemTemplate` | built-in | `DataTemplate` for one appointment on the right (binds to `AgendaEntry`). |
 | `DateTemplate` | built-in | `DataTemplate` for the date column on the left (binds to `AgendaRow`). |
 | `Theme` | built-in | `ScheduleTheme` for the default templates. |

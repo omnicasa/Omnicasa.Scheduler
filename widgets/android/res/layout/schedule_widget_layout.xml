@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Layout for ScheduleWidgetProvider. The schedule grid is drawn to a bitmap and shown in the
+  ImageView; the whole widget is the image. Place at Platforms/Android/Resources/layout/.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF">
+
+    <ImageView
+        android:id="@+id/schedule_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:contentDescription="Schedule" />
+
+</FrameLayout>

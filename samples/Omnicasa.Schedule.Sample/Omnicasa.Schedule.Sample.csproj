@@ -39,4 +39,12 @@
     <ProjectReference Include="..\..\src\Omnicasa.Schedule\Omnicasa.Schedule.csproj" />
   </ItemGroup>
 
+  <!-- Android-only: link the native widget reference sources so the sample can render the widget's
+       Bitmap on a normal page for visual testing (no widget host needed). Renderer uses Android.Graphics. -->
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
+    <Compile Include="..\..\widgets\android\WidgetAppointment.cs" Link="Widget\WidgetAppointment.cs" />
+    <Compile Include="..\..\widgets\android\ScheduleWindow.cs" Link="Widget\ScheduleWindow.cs" />
+    <Compile Include="..\..\widgets\android\ScheduleWidgetRenderer.cs" Link="Widget\ScheduleWidgetRenderer.cs" />
+  </ItemGroup>
+
 </Project>

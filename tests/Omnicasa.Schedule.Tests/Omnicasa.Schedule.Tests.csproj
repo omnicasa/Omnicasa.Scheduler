@@ -21,4 +21,11 @@
                       SetTargetFramework="TargetFramework=net9.0" />
   </ItemGroup>
 
+  <!-- Widget reference sources that are pure C# (no Android deps), linked so their window/layout
+       logic is exercised by the test suite. The renderer/provider need Android and are excluded. -->
+  <ItemGroup>
+    <Compile Include="..\..\widgets\android\WidgetAppointment.cs" Link="Widget\WidgetAppointment.cs" />
+    <Compile Include="..\..\widgets\android\ScheduleWindow.cs" Link="Widget\ScheduleWindow.cs" />
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,61 @@
+# XcodeGen spec for a standalone Schedule-widget demo.
+#
+# Generates an Xcode project wrapping the reusable widget Swift files (../*.swift) in a host app +
+# WidgetKit extension, so you can open it, use the SwiftUI preview, or run it on the simulator.
+#
+#   brew install xcodegen           # once
+#   cd widgets/ios/demo && xcodegen generate && open ScheduleWidgetDemo.xcodeproj
+#
+# (If you'd rather not use XcodeGen: in Xcode create a new iOS App, add a Widget Extension target,
+#  then drag the four ../*.swift files + Widget/ScheduleWidgetBundle.swift into the extension target.)
+
+name: ScheduleWidgetDemo
+options:
+  bundleIdPrefix: com.omnicasa.schedule.demo
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  ScheduleWidgetDemoApp:
+    type: application
+    platform: iOS
+    sources:
+      - App
+    info:
+      path: App/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.omnicasa.schedule.demo.app
+        GENERATE_INFOPLIST_FILE: false
+        TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - target: ScheduleWidgetExtension
+
+  ScheduleWidgetExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+      # The reusable widget sources (shared with the real OmnicasaNative extension):
+      - path: ../WidgetAppointment.swift
+      - path: ../ScheduleWindow.swift
+      - path: ../ScheduleGridView.swift
+      - path: ../ScheduleWidgetExample.swift
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Schedule
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.omnicasa.schedule.demo.app.widget
+        GENERATE_INFOPLIST_FILE: false
+        # Demo-only: show bundled mock data when no App Group file exists, so the widget is
+        # populated when run on the simulator. The real OmnicasaNative extension omits this flag.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: SCHEDULE_WIDGET_DEMO

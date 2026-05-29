@@ -12,7 +12,8 @@
       "Bash(awk '{print $4}')",
       "Bash(unzip -p *.nupkg '*.nuspec')",
       "Bash(python3 -m json.tool /Users/hoangq/Projects/Omnicasa.Schedule/.claude/settings.local.json)",
-      "Bash(grep -n \"TypingItem\\\\|### \\\\`ScheduleView\\\\`\\\\|Renderer\\\\` \\\\|DrawTypingItem\\\\|Other overridable\\\\|ItemActions\\\\|ItemLongTapped\\\\|Notes:\" README.md)"
+      "Bash(grep -n \"TypingItem\\\\|### \\\\`ScheduleView\\\\`\\\\|Renderer\\\\` \\\\|DrawTypingItem\\\\|Other overridable\\\\|ItemActions\\\\|ItemLongTapped\\\\|Notes:\" README.md)",
+      "Bash(xcodebuild -project ScheduleWidgetDemo.xcodeproj -scheme ScheduleWidgetExtension -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build)"
     ]
   }
 }

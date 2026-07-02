@@ -514,6 +514,11 @@ public class ScheduleView : ContentView
         ResizeEnd,
     }
 
+    // Resize corner size, shrunk on small blocks so the middle third always stays a move grip —
+    // with the fixed 24px zone a short appointment was resize-only (the corners covered all of it).
+    private static float CornerZone(RectF rect)
+        => MathF.Min(24f, MathF.Min(rect.Width, rect.Height) / 3f);
+
     private static DateTime ClampToDay(DateTime t, DateTime day, TimeSpan duration)
     {
         var start = day.Date;
@@ -884,7 +889,7 @@ public class ScheduleView : ContentView
             return false;
         }
 
-        const float cornerZone = 24f;
+        float cornerZone = CornerZone(rect.Value);
         float relX = p.X - rect.Value.X;
         float relY = p.Y - rect.Value.Y;
         bool inTopLeft = relX < cornerZone && relY < cornerZone;
@@ -1114,7 +1119,7 @@ public class ScheduleView : ContentView
         }
 
         // Top-left corner resizes the start, bottom-right resizes the end, elsewhere moves.
-        const float cornerZone = 24f;
+        float cornerZone = CornerZone(rect.Value);
         float relX = p.X - rect.Value.X;
         float relY = p.Y - rect.Value.Y;
         bool inTopLeft = relX < cornerZone && relY < cornerZone;

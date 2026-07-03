@@ -281,7 +281,11 @@ public class ScheduleViewRenderer
         }
     }
 
-    /// <summary>Draws the "now" marker (dot + line) across every column whose day is today.</summary>
+    /// <summary>
+    /// Draws the "now" marker when today is visible: a capsule on the time rail showing the
+    /// current time (honouring <see cref="ScheduleViewTheme.HourLabelFormat"/>) plus a line
+    /// across the full schedule width, in <see cref="ScheduleViewTheme.NowIndicator"/>.
+    /// </summary>
     public virtual void DrawTodayMarker(ICanvas canvas, float contentX, float colW, ScheduleRenderContext ctx)
     {
         if (ctx.Now is not { } now)
@@ -291,24 +295,44 @@ public class ScheduleViewRenderer
 
         int n = ctx.Columns.Count;
         var today = DateOnly.FromDateTime(now);
+        bool todayVisible = false;
         for (int i = 0; i < n; i++)
         {
-            var col = ctx.Columns[i];
-            if (DateOnly.FromDateTime(col.DayStart) != today)
+            if (DateOnly.FromDateTime(ctx.Columns[i].DayStart) == today)
             {
-                continue;
+                todayVisible = true;
+                break;
             }
-
-            float y = ctx.Scale.YForTime(now.TimeOfDay);
-            float x0 = contentX + (i * colW);
-            float x1 = x0 + colW;
-            var markerColor = col.Accent ?? ctx.Theme.Today;
-            canvas.FillColor = markerColor;
-            canvas.FillCircle(x0, y, 4);
-            canvas.StrokeColor = markerColor;
-            canvas.StrokeSize = 1.5f;
-            canvas.DrawLine(x0, y, x1, y);
         }
+
+        if (!todayVisible)
+        {
+            return;
+        }
+
+        var theme = ctx.Theme;
+        var markerColor = theme.NowIndicator;
+        float y = ctx.Scale.YForTime(now.TimeOfDay);
+
+        canvas.StrokeColor = markerColor;
+        canvas.StrokeSize = 1.5f;
+        canvas.DrawLine(contentX, y, contentX + (n * colW), y);
+
+        string label = string.IsNullOrEmpty(theme.HourLabelFormat)
+            ? FormatTime(now)
+            : HourLabelFormatter.Custom(now, theme.HourLabelFormat);
+        float fontSize = (float)theme.HourLabelFontSize;
+        float badgeH = fontSize + 8f;
+        float badgeW = ctx.TimeRailWidth - 6f;
+        float badgeX = 2f;
+        float badgeY = y - (badgeH / 2f);
+
+        canvas.FillColor = markerColor;
+        canvas.FillRoundedRectangle(badgeX, badgeY, badgeW, badgeH, badgeH / 2f);
+        canvas.FontColor = Colors.White;
+        canvas.FontSize = fontSize;
+        canvas.Font = Microsoft.Maui.Graphics.Font.Default;
+        canvas.DrawString(label, badgeX, badgeY, badgeW, badgeH, HorizontalAlignment.Center, VerticalAlignment.Center);
     }
 
     /// <summary>

@@ -33,6 +33,10 @@ public class ScheduleViewTheme : BindableObject
     public static readonly BindableProperty TodayProperty =
         BindableProperty.Create(nameof(Today), typeof(Color), typeof(ScheduleViewTheme), Color.FromArgb("#FF3B30"));
 
+    /// <summary>Bindable property for <see cref="NowIndicator"/>.</summary>
+    public static readonly BindableProperty NowIndicatorProperty =
+        BindableProperty.Create(nameof(NowIndicator), typeof(Color), typeof(ScheduleViewTheme), Color.FromArgb("#8B0000"));
+
     /// <summary>Bindable property for <see cref="HourLabelFontSize"/>.</summary>
     public static readonly BindableProperty HourLabelFontSizeProperty =
         BindableProperty.Create(nameof(HourLabelFontSize), typeof(double), typeof(ScheduleViewTheme), 11.0);
@@ -100,11 +104,18 @@ public class ScheduleViewTheme : BindableObject
         set => SetValue(GridLineProperty, value);
     }
 
-    /// <summary>Color used to mark today's column and the current-time line.</summary>
+    /// <summary>Color used to mark today's column header.</summary>
     public Color Today
     {
         get => (Color)GetValue(TodayProperty);
         set => SetValue(TodayProperty, value);
+    }
+
+    /// <summary>Color of the current-time marker (time capsule + full-width line). Defaults to dark red.</summary>
+    public Color NowIndicator
+    {
+        get => (Color)GetValue(NowIndicatorProperty);
+        set => SetValue(NowIndicatorProperty, value);
     }
 
     /// <summary>Font size of the left-rail hour labels (e.g. "9 AM").</summary>

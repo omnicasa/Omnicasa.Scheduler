@@ -327,6 +327,20 @@ public class ScheduleView : ContentView
             OnBodyScrolled(e.ScrollY);
         };
 
+#if IOS
+        // UIScrollView delays touch delivery to its content while deciding whether the gesture is a
+        // scroll, so a quick press-and-drag on a holding/typing block started a scroll instead of the
+        // drag (the press only reached the canvas after a stationary hold). Deliver touches
+        // immediately — the drag paths claim the gesture on press and disable scrolling themselves.
+        bodyScroll.HandlerChanged += (_, _) =>
+        {
+            if (bodyScroll.Handler?.PlatformView is UIKit.UIScrollView nativeScroll)
+            {
+                nativeScroll.DelaysContentTouches = false;
+            }
+        };
+#endif
+
         longPressTimer = Dispatcher.CreateTimer();
         longPressTimer.Interval = TimeSpan.FromMilliseconds(LongPressMilliseconds);
         longPressTimer.IsRepeating = false;

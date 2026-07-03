@@ -24,8 +24,14 @@ internal static class HourLabelFormatter
             };
         }
 
+        return Custom(new DateTime(2000, 1, 1).AddHours(hour), format!);
+    }
+
+    /// <summary>Formats an arbitrary time with a custom format string, e.g. "HH:mm" → "09:59".</summary>
+    public static string Custom(DateTime time, string format)
+    {
         // A single character would be read as a standard format specifier; "%" forces custom ("H" → "%H").
-        var custom = format!.Length == 1 ? "%" + format : format;
-        return new DateTime(2000, 1, 1).AddHours(hour).ToString(custom, CultureInfo.CurrentCulture);
+        var custom = format.Length == 1 ? "%" + format : format;
+        return time.ToString(custom, CultureInfo.CurrentCulture);
     }
 }

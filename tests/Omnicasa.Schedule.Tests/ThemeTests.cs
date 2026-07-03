@@ -17,6 +17,7 @@ public class ThemeTests
         Assert.Equal(Color.FromArgb("#FF3B30"), theme.Accent);
         Assert.Equal(Color.FromArgb("#E5E5EA"), theme.GridLine);
         Assert.Equal(Color.FromArgb("#FF3B30"), theme.Today);
+        Assert.Equal(Color.FromArgb("#8B0000"), theme.NowIndicator);
     }
 
     [Fact]

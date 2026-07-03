@@ -164,7 +164,7 @@ public class ScheduleViewRendererTests
     }
 
     [Fact]
-    public void DrawTodayMarker_MarksMatchingTodayColumn()
+    public void DrawTodayMarker_DrawsFullWidthLineAndTimeCapsule()
     {
         var now = Day.AddHours(10);
         var canvas = new RecordingCanvas();
@@ -173,6 +173,7 @@ public class ScheduleViewRendererTests
             Theme = new ScheduleViewTheme(),
             Scale = new TimeScale(60),
             Now = now,
+            TimeRailWidth = 56,
             Columns = new[]
             {
                 new ScheduleViewColumn { DayStart = Day },               // today
@@ -182,9 +183,47 @@ public class ScheduleViewRendererTests
 
         new ScheduleViewRenderer().DrawTodayMarker(canvas, 56, 100, ctx);
 
-        // One column matches "today": a dot (FillEllipse) + a line.
-        Assert.Single(canvas.FilledEllipses);
+        // A single full-width line plus the capsule badge with the current time.
         Assert.Equal(1, canvas.DrawLineCount);
+        Assert.Single(canvas.FilledRoundedRectangles);
+        Assert.Contains(canvas.Strings, s => s.Contains("10"));
+    }
+
+    [Fact]
+    public void DrawTodayMarker_CustomHourLabelFormat_FormatsCapsuleTime()
+    {
+        var now = Day.AddHours(9).AddMinutes(59);
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme { HourLabelFormat = "HH:mm" },
+            Scale = new TimeScale(60),
+            Now = now,
+            TimeRailWidth = 56,
+            Columns = new[] { new ScheduleViewColumn { DayStart = Day } },
+        };
+
+        new ScheduleViewRenderer().DrawTodayMarker(canvas, 56, 100, ctx);
+
+        Assert.Contains(canvas.Strings, s => s.Contains("09") && s.Contains("59"));
+    }
+
+    [Fact]
+    public void DrawTodayMarker_TodayNotVisible_DrawsNothing()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme(),
+            Scale = new TimeScale(60),
+            Now = Day.AddHours(10),
+            TimeRailWidth = 56,
+            Columns = new[] { new ScheduleViewColumn { DayStart = Day.AddDays(2) } },
+        };
+
+        new ScheduleViewRenderer().DrawTodayMarker(canvas, 56, 100, ctx);
+
+        Assert.Empty(canvas.Ops);
     }
 
     [Fact]

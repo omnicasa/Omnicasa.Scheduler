@@ -926,7 +926,7 @@ public class ScheduleView : ContentView
         typingOriginPoint = p;
         typingOriginStart = typing.Start;
         typingOriginEnd = typing.End;
-        bodyScroll.Orientation = ScrollOrientation.Neither;
+        SetBodyScrollLocked(true);
         return true;
     }
 
@@ -954,6 +954,16 @@ public class ScheduleView : ContentView
 
         if (!pointerDown)
         {
+            return;
+        }
+
+        // Late begin: the press may have raced the holding block's first draw (no rect yet at
+        // press time). Anchor the drag at the press point so the grab offset stays correct.
+        if (TryBeginHoldingDrag(pointerDownPoint))
+        {
+            longPressTimer.Stop();
+            pointerDown = false;
+            UpdateHoldingDrag(p);
             return;
         }
 
@@ -1115,7 +1125,28 @@ public class ScheduleView : ContentView
     private void EndTypingDrag()
     {
         typingDragMode = TypingDragMode.None;
-        bodyScroll.Orientation = ScrollOrientation.Vertical;
+        SetBodyScrollLocked(false);
+    }
+
+    // Locks/unlocks body scrolling around a block drag. Orientation alone only applies after an
+    // async layout pass, so a quick press-and-drag lost the race: the platform pan recognizer still
+    // engaged, cancelled our pointer gesture and scrolled instead (the drag only survived when the
+    // finger held still long enough for the pass to land). Disable the platform scroll synchronously.
+    private void SetBodyScrollLocked(bool locked)
+    {
+        bodyScroll.Orientation = locked ? ScrollOrientation.Neither : ScrollOrientation.Vertical;
+
+#if IOS
+        if (bodyScroll.Handler?.PlatformView is UIKit.UIScrollView nativeScroll)
+        {
+            nativeScroll.ScrollEnabled = !locked;
+        }
+#elif ANDROID
+        if (locked && bodyCanvas.Handler?.PlatformView is Android.Views.View nativeCanvas)
+        {
+            nativeCanvas.Parent?.RequestDisallowInterceptTouchEvent(true);
+        }
+#endif
     }
 
     private bool TryBeginHoldingDrag(PointF p)
@@ -1127,7 +1158,9 @@ public class ScheduleView : ContentView
         }
 
         var rect = bodyDrawable.HoldingRect;
-        if (rect is null || !rect.Value.Contains(p))
+
+        // A small halo around the block so grabbing it doesn't demand pixel accuracy.
+        if (rect is null || !rect.Value.Inflate(16, 16).Contains(p))
         {
             return false;
         }
@@ -1151,7 +1184,7 @@ public class ScheduleView : ContentView
         context.HoldingDragColumn = holdingDragColumn;
         context.HoldingDragStart = holdingDragStart;
         context.HoldingDragEnd = holdingDragEnd;
-        bodyScroll.Orientation = ScrollOrientation.Neither;
+        SetBodyScrollLocked(true);
         bodyCanvas.Invalidate();
         return true;
     }
@@ -1237,7 +1270,7 @@ public class ScheduleView : ContentView
     {
         var item = HoldingSchedule;
         holdingDragMode = TypingDragMode.None;
-        bodyScroll.Orientation = ScrollOrientation.Vertical;
+        SetBodyScrollLocked(false);
 
         if (drop && item is not null)
         {

@@ -96,6 +96,19 @@ public class DayAgendaRendererTests
     }
 
     [Fact]
+    public void DrawHourGrid_CustomHourLabelFormat_DrawsFormattedLabels()
+    {
+        var canvas = new RecordingCanvas();
+        var theme = new ScheduleTheme { HourLabelFormat = "HH" };
+
+        new DayAgendaRenderer().DrawHourGrid(canvas, 200, 56, fontScale: 1f, new TimeScale(60), theme, 56);
+
+        Assert.Contains("23", canvas.Strings);
+        Assert.Contains("09", canvas.Strings);
+        Assert.DoesNotContain(canvas.Strings, s => s.Contains("AM") || s.Contains("PM"));
+    }
+
+    [Fact]
     public void DrawColumnSeparators_HonorsColumnCount()
     {
         var canvas = new RecordingCanvas();

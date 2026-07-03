@@ -110,6 +110,23 @@ public class ScheduleViewRendererTests
     }
 
     [Fact]
+    public void DrawHourGrid_CustomHourLabelFormat_DrawsFormattedLabels()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme { HourLabelFormat = "H" },
+            Scale = new TimeScale(60),
+            TimeRailWidth = 56,
+        };
+
+        new ScheduleViewRenderer().DrawHourGrid(canvas, 320, 56, ctx);
+
+        Assert.Contains("23", canvas.Strings);
+        Assert.DoesNotContain(canvas.Strings, s => s.Contains("AM") || s.Contains("PM"));
+    }
+
+    [Fact]
     public void DrawColumnSeparators_DrawsOneLinePerInteriorBoundary()
     {
         var canvas = new RecordingCanvas();

@@ -41,6 +41,10 @@ public sealed class ScheduleTheme : BindableObject
     public static readonly BindableProperty FontFamilyProperty =
         BindableProperty.Create(nameof(FontFamily), typeof(string), typeof(ScheduleTheme), null);
 
+    /// <summary>Bindable property for <see cref="HourLabelFormat"/>.</summary>
+    public static readonly BindableProperty HourLabelFormatProperty =
+        BindableProperty.Create(nameof(HourLabelFormat), typeof(string), typeof(ScheduleTheme), null);
+
     /// <summary>Bindable property for <see cref="MonthHeaderFontSize"/>.</summary>
     public static readonly BindableProperty MonthHeaderFontSizeProperty =
         BindableProperty.Create(nameof(MonthHeaderFontSize), typeof(double?), typeof(ScheduleTheme), null);
@@ -114,6 +118,17 @@ public sealed class ScheduleTheme : BindableObject
     {
         get => (string?)GetValue(FontFamilyProperty);
         set => SetValue(FontFamilyProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets an optional .NET date-time format string for the left-rail hour labels,
+    /// applied to each whole hour (e.g. "H" → "23", "HH:mm" → "23:00"). Null uses the
+    /// 12-hour default ("11 PM").
+    /// </summary>
+    public string? HourLabelFormat
+    {
+        get => (string?)GetValue(HourLabelFormatProperty);
+        set => SetValue(HourLabelFormatProperty, value);
     }
 
     /// <summary>Gets or sets the month header font size. Null auto-fits to the cell.</summary>

@@ -37,6 +37,10 @@ public class ScheduleViewTheme : BindableObject
     public static readonly BindableProperty HourLabelFontSizeProperty =
         BindableProperty.Create(nameof(HourLabelFontSize), typeof(double), typeof(ScheduleViewTheme), 11.0);
 
+    /// <summary>Bindable property for <see cref="HourLabelFormat"/>.</summary>
+    public static readonly BindableProperty HourLabelFormatProperty =
+        BindableProperty.Create(nameof(HourLabelFormat), typeof(string), typeof(ScheduleViewTheme), null);
+
     /// <summary>Bindable property for <see cref="HeaderPrimaryFontSize"/>.</summary>
     public static readonly BindableProperty HeaderPrimaryFontSizeProperty =
         BindableProperty.Create(nameof(HeaderPrimaryFontSize), typeof(double), typeof(ScheduleViewTheme), 12.0);
@@ -108,6 +112,16 @@ public class ScheduleViewTheme : BindableObject
     {
         get => (double)GetValue(HourLabelFontSizeProperty);
         set => SetValue(HourLabelFontSizeProperty, value);
+    }
+
+    /// <summary>
+    /// Optional .NET date-time format string for the left-rail hour labels, applied to each
+    /// whole hour (e.g. "H" → "23", "HH:mm" → "23:00"). Null uses the 12-hour default ("11 PM").
+    /// </summary>
+    public string? HourLabelFormat
+    {
+        get => (string?)GetValue(HourLabelFormatProperty);
+        set => SetValue(HourLabelFormatProperty, value);
     }
 
     /// <summary>Font size of the top-row header text (e.g. day-of-week or "MON 24").</summary>

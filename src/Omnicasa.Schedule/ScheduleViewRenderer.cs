@@ -251,13 +251,7 @@ public class ScheduleViewRenderer
                 continue;
             }
 
-            string label = hr switch
-            {
-                0 => "12 AM",
-                12 => "12 PM",
-                < 12 => $"{hr} AM",
-                _ => $"{hr - 12} PM",
-            };
+            string label = HourLabelFormatter.Format(hr, theme.HourLabelFormat);
 
             canvas.DrawString(
                 label,

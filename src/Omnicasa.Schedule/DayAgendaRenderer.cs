@@ -204,23 +204,7 @@ public class DayAgendaRenderer
             canvas.DrawLine(contentX, y, width, y);
             if (hr < 24)
             {
-                string label;
-                if (hr == 0)
-                {
-                    label = "12 AM";
-                }
-                else if (hr < 12)
-                {
-                    label = $"{hr} AM";
-                }
-                else if (hr == 12)
-                {
-                    label = "12 PM";
-                }
-                else
-                {
-                    label = $"{hr - 12} PM";
-                }
+                string label = HourLabelFormatter.Format(hr, theme.HourLabelFormat);
 
                 canvas.DrawString(
                     label,

@@ -31,6 +31,7 @@ public class ThemeTests
         Assert.Equal(10.0, theme.BlockRangeFontSize);
         Assert.Equal(56.0, theme.TimeRailWidth);
         Assert.Equal(48.0, theme.HeaderHeight);
+        Assert.Null(theme.HourLabelFormat);
     }
 
     [Fact]
@@ -56,5 +57,6 @@ public class ThemeTests
         Assert.Equal(Color.FromArgb("#FF3B30"), theme.Today);
         Assert.Equal(Color.FromArgb("#8E8E93"), theme.Saturday);
         Assert.Equal(Color.FromArgb("#8E8E93"), theme.Sunday);
+        Assert.Null(theme.HourLabelFormat);
     }
 }

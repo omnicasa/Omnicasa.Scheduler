@@ -92,11 +92,13 @@ public static class ScheduleColumnBuilder
             }
             else
             {
+                // Day number also on single-day columns: the in-house bar hides that case anyway,
+                // and a detached header over one-day pages should still show the date.
                 columns[d] = new ScheduleViewColumn
                 {
                     DayStart = dayStart,
                     HeaderPrimary = dayShort,
-                    HeaderSecondary = days > 1 ? dayNum : null,
+                    HeaderSecondary = dayNum,
                     Accent = null,
                     IsToday = isToday,
                     Items = ScheduleLayout.Layout(dayItems),

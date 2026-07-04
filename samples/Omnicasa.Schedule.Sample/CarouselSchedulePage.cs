@@ -71,6 +71,7 @@ public sealed class SharedScheduleState : INotifyPropertyChanged
 {
     private double sharedOffset;
     private double sharedHourHeight = 60;
+    private double headerInset;
 
     /// <summary>Initializes a new instance of the <see cref="SharedScheduleState"/> class.</summary>
     public SharedScheduleState()
@@ -105,6 +106,13 @@ public sealed class SharedScheduleState : INotifyPropertyChanged
     {
         get => sharedHourHeight;
         set => Set(ref sharedHourHeight, value);
+    }
+
+    /// <summary>Gets or sets the top inset every page reserves under an overlaid glass header.</summary>
+    public double HeaderInset
+    {
+        get => headerInset;
+        set => Set(ref headerInset, value);
     }
 
     private void Set(ref double field, double value, [CallerMemberName] string? name = null)

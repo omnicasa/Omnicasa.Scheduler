@@ -32,13 +32,13 @@ public class ScheduleColumnBuilderTests
     }
 
     [Fact]
-    public void Build_SingleDayNoPersons_HasNoSecondaryLabel()
+    public void Build_SingleDayNoPersons_KeepsDayNumberForDetachedHeaders()
     {
         var cols = ScheduleColumnBuilder.Build(Day, Day, 1, persons: null);
 
         var col = Assert.Single(cols);
         Assert.Equal("MON", col.HeaderPrimary);
-        Assert.Null(col.HeaderSecondary);
+        Assert.Equal("25", col.HeaderSecondary);
         Assert.Null(col.PersonId);
         Assert.Empty(col.Items);
     }

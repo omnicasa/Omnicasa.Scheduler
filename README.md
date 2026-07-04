@@ -8,9 +8,10 @@ Smooth calendar and agenda controls for .NET MAUI (iOS + Android), inspired by t
 
 📦 **NuGet:** <https://www.nuget.org/packages/Omnicasa.Schedule>
 
-The package ships five drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
+The package ships six drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
 
 - **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, an all-day / cross-date bar above the grid, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
+- **`ScheduleHeaderView`** — the schedule's day/person header as a standalone bar, for pinning over a full-bleed schedule (iOS 26 liquid-glass style) or sharing one header across a `CarouselView` of day pages.
 - **`DayAgendaView`** — day / 3-day / 5-day / week agenda with horizontal swipe between pages, pinch-to-zoom on the time rail, and tap / drag / resize on appointment blocks.
 - **`AgendaListView`** — an infinitely-scrolling agenda: one row per day with the date on the left and that day's appointments on the right ("no events" placeholders for empty days), built on `CollectionView`.
 - **`MonthCalendarView`** — full-size months stacked vertically with continuous scroll (one month per screen), event-density dots, and per-day tap. Pairs with the year view for a year → month → day drill-down.
@@ -133,6 +134,8 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `TypingItem` | `null` | An `ITypingScheduleItem` draft block — shadowed, draggable, resizable (snaps to grid). |
 | `HoldingSchedule` | `null` | An `IScheduleItem` "held" block — drag to move (free vertical, snap to column) and resize via corner handles. Reports drops via `HoldingDropped`; never mutates the item. |
 | `VerticalOffset` | `0` | Two-way scroll offset (pixels). Bind several pages to one value to keep a `CarouselView` of schedules in sync. |
+| `HeaderMode` | `Inhouse` | Where the day header (and all-day panel) renders: `Inhouse` (pinned inside the control), `Linked` (suppressed — an external [`ScheduleHeaderView`](#scheduleheaderview) draws them), `None` (no header; all-day panel stays). |
+| `TopContentInset` | `0` | Blank space above midnight inside the scrollable body. Use with `Linked` + an overlaid header so hour 0 starts below the glass bar while content scrolls under it. |
 | `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
 | `Renderer` | built-in | `ScheduleViewRenderer` — see [Custom rendering](#custom-rendering). |
 | `ItemActionsProvider` | `null` | `Func<IScheduleItem, IReadOnlyList<ScheduleMenuAction>>`; return actions (label + optional icon) to show a native long-press menu (iOS context menu / Android `PopupMenu`). |
@@ -142,6 +145,34 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `HoldingDropped` | — | Fires when the held block is released; payload is `Item`, snapped `Start`/`End`, `PersonId`. |
 
 `ScrollToTimeAsync(timeOfDay, animated)` programmatically scrolls a time to the top.
+
+### `ScheduleHeaderView`
+
+A standalone day/person header bar for pinning **outside** the schedule — e.g. a translucent, iOS 26
+liquid-glass style bar the full-bleed schedule scrolls under, or a single header shared by a
+`CarouselView` of day pages (an in-house header would swipe away with its page).
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `Schedule` | `null` | **Linked mode**: the `ScheduleView` to mirror (set its `HeaderMode="Linked"`). Columns, theme, renderer and all-day bars come from that view; the header also tracks its scroll for the edge shadow. With a carousel, re-point this at the current page as it changes. |
+| `StartDay` / `EndDay` / `ViewMode` / `Persons` / `Theme` / `Renderer` | as `ScheduleView` | **Standalone mode** (when `Schedule` is null): bind these to the same source as the schedule; columns are built with identical rules so they align. |
+| `ShowAllDay` | `true` | Render the all-day / cross-date panel below the day bar (linked mode only). |
+| `HeaderBackground` | `null` | View layered behind the canvases — typically a platform blur / glass view. Setting it makes the header paint on a transparent background. |
+| `DrawsBackground` | `true` | Set `false` to skip the opaque theme background without a background view. |
+| `ScrollOffset` | `0` | Drives the scroll-edge shadow; auto-tracks the linked schedule's `VerticalOffset`. |
+| `ShowsScrollEdgeShadow` | `true` | Soft shadow under the bar once content is scrolled beneath it. |
+| `ItemTapped` event | — | Tap on an all-day bar. |
+
+```csharp
+// One glass header pinned over a full-bleed carousel of day pages:
+var header = new ScheduleHeaderView { VerticalOptions = LayoutOptions.Start, HeaderBackground = blurView };
+var page = new ScheduleView { HeaderMode = ScheduleHeaderMode.Linked, TopContentInset = 48 };
+header.Schedule = page; // re-point on carousel page change
+Content = new Grid { Children = { carousel, header } };
+```
+
+See `samples/.../GlassSchedulePage.cs` for the full pattern (carousel re-linking, inset sizing, iOS blur).
+The header must get the same width and horizontal insets as the schedule body for the columns to align.
 
 ### `DayAgendaView`
 

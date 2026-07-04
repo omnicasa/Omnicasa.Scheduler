@@ -1,7 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Globalization;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 
@@ -550,27 +549,6 @@ public class ScheduleView : ContentView
         return t;
     }
 
-    private static string Initials(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return "?";
-        }
-
-        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2)
-        {
-            return string.Concat(
-                char.ToUpperInvariant(parts[0][0]),
-                char.ToUpperInvariant(parts[^1][0]));
-        }
-
-        var single = parts[0];
-        return single.Length >= 2
-            ? single.Substring(0, 2).ToUpperInvariant()
-            : single.ToUpperInvariant();
-    }
-
     private void OnItemsSourceChanged(IEnumerable? oldValue, IEnumerable? newValue)
     {
         if (oldValue is INotifyCollectionChanged oldNotify)
@@ -749,17 +727,9 @@ public class ScheduleView : ContentView
     {
         var theme = Theme;
         var personsMode = Persons is not null && Persons.Count > 0;
-        int personCount = personsMode ? Persons!.Count : 1;
 
         var rangeStart = StartDay.Date;
-        var rangeEnd = EndDay.Date;
-        if (rangeEnd < rangeStart)
-        {
-            rangeEnd = rangeStart;
-        }
-
-        int rangeDays = (int)(rangeEnd - rangeStart).TotalDays + 1;
-        int days = Math.Min(Math.Max(1, ViewMode), rangeDays);
+        int days = ScheduleColumnBuilder.EffectiveDays(StartDay, EndDay, ViewMode);
 
         float headerHeight = (personsMode || days > 1) ? (float)theme.HeaderHeight : 0f;
         context.Theme = theme;
@@ -783,57 +753,7 @@ public class ScheduleView : ContentView
             }
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        var columns = new ScheduleViewColumn[days * personCount];
-
-        for (int d = 0; d < days; d++)
-        {
-            var dayStart = rangeStart.AddDays(d);
-            var dayEnd = dayStart.AddDays(1);
-            var dayOnly = DateOnly.FromDateTime(dayStart);
-            var dayShort = dayOnly.DayOfWeek.ToString().Substring(0, 3).ToUpperInvariant();
-            var dayNum = dayOnly.Day.ToString(CultureInfo.InvariantCulture);
-            var isToday = dayOnly == today;
-
-            var dayItems = items
-                .Where(a => a.Start < dayEnd && a.End > dayStart && !AllDayLayout.IsSpanning(a))
-                .ToList();
-
-            if (personsMode)
-            {
-                for (int p = 0; p < personCount; p++)
-                {
-                    var person = Persons![p];
-                    var forPerson = dayItems
-                        .Where(a => string.Equals(a.PersonId, person.Id, StringComparison.Ordinal))
-                        .ToList();
-                    columns[(d * personCount) + p] = new ScheduleViewColumn
-                    {
-                        DayStart = dayStart,
-                        HeaderPrimary = $"{dayShort} {dayNum}",
-                        HeaderSecondary = Initials(person.Name),
-                        Accent = person.Color,
-                        IsToday = isToday,
-                        PersonId = person.Id,
-                        Items = ScheduleLayout.Layout(forPerson),
-                    };
-                }
-            }
-            else
-            {
-                columns[d] = new ScheduleViewColumn
-                {
-                    DayStart = dayStart,
-                    HeaderPrimary = dayShort,
-                    HeaderSecondary = days > 1 ? dayNum : null,
-                    Accent = null,
-                    IsToday = isToday,
-                    Items = ScheduleLayout.Layout(dayItems),
-                };
-            }
-        }
-
-        context.Columns = columns;
+        context.Columns = ScheduleColumnBuilder.Build(StartDay, EndDay, ViewMode, Persons, items);
         context.Now = DateTime.Now;
 
         // All-day / cross-date items go in the panel above the grid, spanning the days they cover.

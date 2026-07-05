@@ -12,6 +12,14 @@ namespace Omnicasa.Schedule.Sample;
 /// </summary>
 public sealed class GlassSchedulePage : ContentPage
 {
+    // Same trio as SchedulePage; the sample source tags its appointments with p1..p3.
+    private static readonly IList<IPerson> DemoPersons = new List<IPerson>
+    {
+        new Person { Id = "p1", Name = "Alice Murphy", Color = Color.FromArgb("#007AFF") },
+        new Person { Id = "p2", Name = "Bob Reyes", Color = Color.FromArgb("#34C759") },
+        new Person { Id = "p3", Name = "Charlie Mendes", Color = Color.FromArgb("#FF9500") },
+    };
+
     private readonly Dictionary<DaySlot, ScheduleView> viewsBySlot = new Dictionary<DaySlot, ScheduleView>();
 
     private readonly SharedScheduleState state;
@@ -27,6 +35,12 @@ public sealed class GlassSchedulePage : ContentPage
 
         state = new SharedScheduleState();
         BindingContext = state;
+
+        ToolbarItems.Add(new ToolbarItem
+        {
+            Text = "Persons",
+            Command = new Command(() => state.Persons = state.Persons is null ? DemoPersons : null),
+        });
 
         header = new ScheduleHeaderView
         {
@@ -107,6 +121,9 @@ public sealed class GlassSchedulePage : ContentPage
         view.SetBinding(
             ScheduleView.TopContentInsetProperty,
             new Binding(nameof(SharedScheduleState.HeaderInset), source: state));
+        view.SetBinding(
+            ScheduleView.PersonsProperty,
+            new Binding(nameof(SharedScheduleState.Persons), source: state));
 
         // CarouselView recycles views across slots, so track which slot each view currently shows.
         view.BindingContextChanged += (_, _) => OnViewSlotChanged(view);

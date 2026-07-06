@@ -156,6 +156,11 @@ public partial class MainPage : ContentPage
         await Shell.Current.GoToAsync(nameof(CarouselSchedulePage));
     }
 
+    private async void OnOpenGlass(object? sender, EventArgs e)
+    {
+        await Shell.Current.GoToAsync(nameof(GlassSchedulePage));
+    }
+
     private async void OnOpenAgenda(object? sender, EventArgs e)
     {
         await Shell.Current.GoToAsync(nameof(AgendaPage));

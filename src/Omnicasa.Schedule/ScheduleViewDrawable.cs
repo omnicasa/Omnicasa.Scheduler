@@ -88,10 +88,17 @@ public sealed class ScheduleHeaderDrawable : IDrawable
     /// <summary>Painter used for the header; defaults to the built-in look.</summary>
     public ScheduleViewRenderer Renderer { get; set; } = ScheduleViewRenderer.Default;
 
+    /// <summary>False leaves the canvas transparent so a view behind it (e.g. glass/blur) shows through.</summary>
+    public bool DrawsBackground { get; set; } = true;
+
     /// <inheritdoc />
     public void Draw(ICanvas canvas, RectF dirtyRect)
     {
-        Renderer.DrawBackground(canvas, dirtyRect, Context.Theme);
+        if (DrawsBackground)
+        {
+            Renderer.DrawBackground(canvas, dirtyRect, Context.Theme);
+        }
+
         Renderer.DrawHeader(canvas, dirtyRect, Context);
     }
 }
@@ -110,6 +117,9 @@ public sealed class ScheduleAllDayDrawable : IDrawable
     /// <summary>Hit map populated after every <see cref="Draw"/>.</summary>
     public IReadOnlyList<(IScheduleItem Item, RectF Rect)> HitMap => hitMap;
 
+    /// <summary>False leaves the canvas transparent so a view behind it (e.g. glass/blur) shows through.</summary>
+    public bool DrawsBackground { get; set; } = true;
+
     /// <inheritdoc />
     public void Draw(ICanvas canvas, RectF dirtyRect)
     {
@@ -120,7 +130,10 @@ public sealed class ScheduleAllDayDrawable : IDrawable
         float w = dirtyRect.Width;
         float h = dirtyRect.Height;
 
-        Renderer.DrawBackground(canvas, dirtyRect, theme);
+        if (DrawsBackground)
+        {
+            Renderer.DrawBackground(canvas, dirtyRect, theme);
+        }
 
         float contentX = ctx.TimeRailWidth;
         float contentW = w - contentX;

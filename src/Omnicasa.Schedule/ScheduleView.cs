@@ -1,7 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Globalization;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Graphics;
 
@@ -189,6 +188,25 @@ public class ScheduleView : ContentView
             typeof(ScheduleView),
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnTypingItemChanged(o as ITypingScheduleItem, n as ITypingScheduleItem));
+
+    /// <summary>Bindable property for <see cref="TopContentInset"/>.</summary>
+    public static readonly BindableProperty TopContentInsetProperty =
+        BindableProperty.Create(
+            nameof(TopContentInset),
+            typeof(double),
+            typeof(ScheduleView),
+            0.0,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
+            coerceValue: (_, v) => Math.Max(0.0, (double)v));
+
+    /// <summary>Bindable property for <see cref="HeaderMode"/>.</summary>
+    public static readonly BindableProperty HeaderModeProperty =
+        BindableProperty.Create(
+            nameof(HeaderMode),
+            typeof(ScheduleHeaderMode),
+            typeof(ScheduleView),
+            ScheduleHeaderMode.Inhouse,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild());
 
     /// <summary>Bindable property for <see cref="HoldingSchedule"/>.</summary>
     public static readonly BindableProperty HoldingScheduleProperty =
@@ -394,6 +412,9 @@ public class ScheduleView : ContentView
     /// <summary>Fired when the held <see cref="HoldingSchedule"/> block is released. The item is not mutated.</summary>
     public event EventHandler<HoldingDroppedEventArgs>? HoldingDropped;
 
+    /// <summary>Raised after the render context is rebuilt, so a linked <see cref="ScheduleHeaderView"/> can refresh.</summary>
+    internal event EventHandler? Rebuilt;
+
     /// <summary>
     /// Optional provider of long-press menu actions for an appointment. Return the actions to offer
     /// (label + optional icon); an empty or absent list means no menu (long-press then falls back to
@@ -499,6 +520,35 @@ public class ScheduleView : ContentView
     }
 
     /// <summary>
+    /// Where the header (and all-day panel) is rendered. <see cref="ScheduleHeaderMode.Inhouse"/>
+    /// draws them pinned inside this control (default). <see cref="ScheduleHeaderMode.Linked"/>
+    /// suppresses both so an external <see cref="ScheduleHeaderView"/> (with its
+    /// <see cref="ScheduleHeaderView.Schedule"/> set to this view) renders them — e.g. as a
+    /// translucent glass bar the body scrolls under. <see cref="ScheduleHeaderMode.None"/> hides
+    /// the header but keeps the all-day panel.
+    /// </summary>
+    public ScheduleHeaderMode HeaderMode
+    {
+        get => (ScheduleHeaderMode)GetValue(HeaderModeProperty);
+        set => SetValue(HeaderModeProperty, value);
+    }
+
+    /// <summary>
+    /// Blank space above midnight inside the scrollable body, in logical pixels. Use with
+    /// <see cref="ScheduleHeaderMode.Linked"/> and an overlaid <see cref="ScheduleHeaderView"/>:
+    /// size it to the header's height so hour 0 starts fully visible below the glass bar while
+    /// scrolled content still passes underneath it.
+    /// </summary>
+    public double TopContentInset
+    {
+        get => (double)GetValue(TopContentInsetProperty);
+        set => SetValue(TopContentInsetProperty, value);
+    }
+
+    /// <summary>Render state shared with a linked <see cref="ScheduleHeaderView"/>.</summary>
+    internal ScheduleRenderContext RenderContext => context;
+
+    /// <summary>
     /// Scrolls the body so <paramref name="timeOfDay"/> sits at the top edge — the library does the
     /// time→pixel conversion for you (no need to multiply by <see cref="HourHeight"/>). Also updates
     /// <see cref="VerticalOffset"/>, so views bound to the same offset follow along.
@@ -509,7 +559,8 @@ public class ScheduleView : ContentView
     /// <returns>A task that completes when the scroll finishes.</returns>
     public Task ScrollToTimeAsync(TimeSpan timeOfDay, bool animated = false)
     {
-        double offset = context.Scale.YForTime(timeOfDay);
+        // Minus the inset so the time lands just below an overlaid header, not under it.
+        double offset = context.Scale.YForTime(timeOfDay) - context.Scale.TopPadding;
 
         // Publish the offset for synced siblings, but suppress our own (non-animated) re-scroll —
         // we scroll explicitly below so the `animated` flag is honored.
@@ -548,27 +599,6 @@ public class ScheduleView : ContentView
         }
 
         return t;
-    }
-
-    private static string Initials(string? name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return "?";
-        }
-
-        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length >= 2)
-        {
-            return string.Concat(
-                char.ToUpperInvariant(parts[0][0]),
-                char.ToUpperInvariant(parts[^1][0]));
-        }
-
-        var single = parts[0];
-        return single.Length >= 2
-            ? single.Substring(0, 2).ToUpperInvariant()
-            : single.ToUpperInvariant();
     }
 
     private void OnItemsSourceChanged(IEnumerable? oldValue, IEnumerable? newValue)
@@ -692,6 +722,7 @@ public class ScheduleView : ContentView
         headerCanvas.Invalidate();
         allDayCanvas.Invalidate();
         bodyCanvas.Invalidate();
+        Rebuilt?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnAllDayTapped(object? sender, TappedEventArgs e)
@@ -749,26 +780,21 @@ public class ScheduleView : ContentView
     {
         var theme = Theme;
         var personsMode = Persons is not null && Persons.Count > 0;
-        int personCount = personsMode ? Persons!.Count : 1;
 
         var rangeStart = StartDay.Date;
-        var rangeEnd = EndDay.Date;
-        if (rangeEnd < rangeStart)
-        {
-            rangeEnd = rangeStart;
-        }
+        int days = ScheduleColumnBuilder.EffectiveDays(StartDay, EndDay, ViewMode);
 
-        int rangeDays = (int)(rangeEnd - rangeStart).TotalDays + 1;
-        int days = Math.Min(Math.Max(1, ViewMode), rangeDays);
-
-        float headerHeight = (personsMode || days > 1) ? (float)theme.HeaderHeight : 0f;
+        // Context carries the bar height; whether the in-house canvas shows it is a separate rule,
+        // so a linked header can still render single-day columns the in-house bar would hide.
+        float headerHeight = (float)theme.HeaderHeight;
         context.Theme = theme;
         context.TimeRailWidth = (float)theme.TimeRailWidth;
         context.HeaderHeight = headerHeight;
-        context.Scale = new TimeScale((float)HourHeight);
+        context.Scale = new TimeScale((float)HourHeight, (float)TopContentInset);
 
-        headerCanvas.HeightRequest = headerHeight;
-        headerCanvas.IsVisible = headerHeight > 0;
+        bool inhouseHeader = HeaderMode == ScheduleHeaderMode.Inhouse && (personsMode || days > 1);
+        headerCanvas.HeightRequest = inhouseHeader ? headerHeight : 0;
+        headerCanvas.IsVisible = inhouseHeader;
         bodyCanvas.HeightRequest = context.Scale.TotalHeight;
 
         var items = new List<IScheduleItem>();
@@ -783,57 +809,7 @@ public class ScheduleView : ContentView
             }
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        var columns = new ScheduleViewColumn[days * personCount];
-
-        for (int d = 0; d < days; d++)
-        {
-            var dayStart = rangeStart.AddDays(d);
-            var dayEnd = dayStart.AddDays(1);
-            var dayOnly = DateOnly.FromDateTime(dayStart);
-            var dayShort = dayOnly.DayOfWeek.ToString().Substring(0, 3).ToUpperInvariant();
-            var dayNum = dayOnly.Day.ToString(CultureInfo.InvariantCulture);
-            var isToday = dayOnly == today;
-
-            var dayItems = items
-                .Where(a => a.Start < dayEnd && a.End > dayStart && !AllDayLayout.IsSpanning(a))
-                .ToList();
-
-            if (personsMode)
-            {
-                for (int p = 0; p < personCount; p++)
-                {
-                    var person = Persons![p];
-                    var forPerson = dayItems
-                        .Where(a => string.Equals(a.PersonId, person.Id, StringComparison.Ordinal))
-                        .ToList();
-                    columns[(d * personCount) + p] = new ScheduleViewColumn
-                    {
-                        DayStart = dayStart,
-                        HeaderPrimary = $"{dayShort} {dayNum}",
-                        HeaderSecondary = Initials(person.Name),
-                        Accent = person.Color,
-                        IsToday = isToday,
-                        PersonId = person.Id,
-                        Items = ScheduleLayout.Layout(forPerson),
-                    };
-                }
-            }
-            else
-            {
-                columns[d] = new ScheduleViewColumn
-                {
-                    DayStart = dayStart,
-                    HeaderPrimary = dayShort,
-                    HeaderSecondary = days > 1 ? dayNum : null,
-                    Accent = null,
-                    IsToday = isToday,
-                    Items = ScheduleLayout.Layout(dayItems),
-                };
-            }
-        }
-
-        context.Columns = columns;
+        context.Columns = ScheduleColumnBuilder.Build(StartDay, EndDay, ViewMode, Persons, items);
         context.Now = DateTime.Now;
 
         // All-day / cross-date items go in the panel above the grid, spanning the days they cover.
@@ -848,13 +824,16 @@ public class ScheduleView : ContentView
         context.DayCount = days;
         context.AllDayLaneHeight = AllDayLaneHeight;
 
+        // In Linked mode the external header hosts the all-day panel too.
+        bool inhouseAllDay = HeaderMode != ScheduleHeaderMode.Linked;
         float panelHeight = laneCount > 0 ? (laneCount * AllDayLaneHeight) + 6f : 0f;
-        allDayCanvas.HeightRequest = panelHeight;
-        allDayCanvas.IsVisible = panelHeight > 0;
+        allDayCanvas.HeightRequest = inhouseAllDay ? panelHeight : 0;
+        allDayCanvas.IsVisible = inhouseAllDay && panelHeight > 0;
 
         headerCanvas.Invalidate();
         allDayCanvas.Invalidate();
         bodyCanvas.Invalidate();
+        Rebuilt?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnPointerPressed(object? sender, PointerEventArgs e)
@@ -1459,7 +1438,7 @@ public class ScheduleView : ContentView
                 var target = Math.Clamp(pinchBase * pinchScale, 24, 200);
                 if (Math.Abs(target - context.Scale.HourHeight) >= 1.0)
                 {
-                    context.Scale = new TimeScale((float)target);
+                    context.Scale = new TimeScale((float)target, context.Scale.TopPadding);
                     bodyCanvas.HeightRequest = context.Scale.TotalHeight;
                     bodyCanvas.Invalidate();
                     KeepAnchorPinned();

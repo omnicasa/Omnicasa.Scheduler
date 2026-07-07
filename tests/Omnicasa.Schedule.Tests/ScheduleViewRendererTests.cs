@@ -43,6 +43,33 @@ public class ScheduleViewRendererTests
     }
 
     [Fact]
+    public void DrawHeaderBackground_Default_DelegatesToDrawBackground()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext { Theme = new ScheduleViewTheme() };
+
+        new ScheduleViewRenderer().DrawHeaderBackground(canvas, new RectF(0, 0, 320, 48), ctx);
+
+        Assert.Contains(new RectF(0, 0, 320, 48), canvas.FilledRectangles);
+        Assert.Equal(ctx.Theme.Background, canvas.LastFillColor);
+    }
+
+    [Fact]
+    public void DrawHeaderBackground_ThemeHeaderBackground_WinsOverBackground()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme { HeaderBackground = Colors.MidnightBlue },
+        };
+
+        new ScheduleViewRenderer().DrawHeaderBackground(canvas, new RectF(0, 0, 320, 48), ctx);
+
+        Assert.Contains(new RectF(0, 0, 320, 48), canvas.FilledRectangles);
+        Assert.Equal(Colors.MidnightBlue, canvas.LastFillColor);
+    }
+
+    [Fact]
     public void DrawAppointment_Default_PaintsBlockAndTitle()
     {
         var canvas = new RecordingCanvas();

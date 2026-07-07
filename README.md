@@ -315,8 +315,8 @@ public sealed class MyRenderer : ScheduleViewRenderer
     }
 
     // Other overridable primitives (defaults reproduce the built-in look):
-    //   DrawHeader, DrawHourGrid, DrawColumnSeparators, DrawTodayMarker,
-    //   DrawTypingItem, DrawHoldingItem, DrawAllDayItem, DrawBackground
+    //   DrawHeader, DrawHeaderBackground, DrawHourGrid, DrawColumnSeparators,
+    //   DrawTodayMarker, DrawTypingItem, DrawHoldingItem, DrawAllDayItem, DrawBackground
 }
 ```
 

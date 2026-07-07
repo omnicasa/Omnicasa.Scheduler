@@ -96,7 +96,7 @@ public sealed class ScheduleHeaderDrawable : IDrawable
     {
         if (DrawsBackground)
         {
-            Renderer.DrawBackground(canvas, dirtyRect, Context.Theme);
+            Renderer.DrawHeaderBackground(canvas, dirtyRect, Context);
         }
 
         Renderer.DrawHeader(canvas, dirtyRect, Context);

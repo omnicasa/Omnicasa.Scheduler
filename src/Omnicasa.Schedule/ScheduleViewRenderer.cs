@@ -107,12 +107,22 @@ public class ScheduleViewRenderer
     /// <summary>Shared default renderer instance used when none is supplied.</summary>
     public static ScheduleViewRenderer Default { get; } = new ScheduleViewRenderer();
 
-    /// <summary>Fills the canvas background. Called by both the header and body canvases.</summary>
+    /// <summary>Fills the canvas background. Called by the body and all-day canvases.</summary>
     public virtual void DrawBackground(ICanvas canvas, RectF dirtyRect, ScheduleViewTheme theme)
     {
         canvas.FillColor = theme.Background;
         canvas.FillRectangle(0, 0, dirtyRect.Width, dirtyRect.Height);
     }
+
+    /// <summary>
+    /// Fills the sticky header bar's background, before <see cref="DrawHeader"/> paints its content.
+    /// Default delegates to <see cref="DrawBackground"/> so the header matches the body; override to
+    /// give the header its own surface (tint, gradient, transparent) without re-implementing
+    /// <see cref="DrawHeader"/>. Not called when the header canvas is in transparent mode
+    /// (<c>ScheduleHeaderDrawable.DrawsBackground = false</c>).
+    /// </summary>
+    public virtual void DrawHeaderBackground(ICanvas canvas, RectF dirtyRect, ScheduleRenderContext ctx)
+        => DrawBackground(canvas, dirtyRect, ctx.Theme);
 
     /// <summary>Draws the sticky header bar: day-group labels, per-column sub-headers, today tint and accent strips.</summary>
     public virtual void DrawHeader(ICanvas canvas, RectF dirtyRect, ScheduleRenderContext ctx)

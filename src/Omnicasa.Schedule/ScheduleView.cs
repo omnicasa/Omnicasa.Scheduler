@@ -834,6 +834,14 @@ public class ScheduleView : ContentView
         allDayCanvas.Invalidate();
         bodyCanvas.Invalidate();
         Rebuilt?.Invoke(this, EventArgs.Empty);
+
+        // The canvas height may have changed (zoom, day/theme switch) without a new offset value,
+        // so a synced sibling keeps a stale or clamped ScrollY. Re-seat the bound offset once the
+        // ScrollView has remeasured (same defer as the Loaded jump).
+        if (VerticalOffset > 0 && Math.Abs(bodyScroll.ScrollY - VerticalOffset) >= 0.5)
+        {
+            Dispatcher.Dispatch(() => ApplyVerticalOffset(VerticalOffset));
+        }
     }
 
     private void OnPointerPressed(object? sender, PointerEventArgs e)

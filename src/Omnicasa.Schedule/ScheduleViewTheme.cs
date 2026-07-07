@@ -13,6 +13,10 @@ public class ScheduleViewTheme : BindableObject
     public static readonly BindableProperty BackgroundProperty =
         BindableProperty.Create(nameof(Background), typeof(Color), typeof(ScheduleViewTheme), Colors.White);
 
+    /// <summary>Bindable property for <see cref="HeaderBackground"/>.</summary>
+    public static readonly BindableProperty HeaderBackgroundProperty =
+        BindableProperty.Create(nameof(HeaderBackground), typeof(Color), typeof(ScheduleViewTheme), null);
+
     /// <summary>Bindable property for <see cref="Foreground"/>.</summary>
     public static readonly BindableProperty ForegroundProperty =
         BindableProperty.Create(nameof(Foreground), typeof(Color), typeof(ScheduleViewTheme), Colors.Black);
@@ -74,6 +78,13 @@ public class ScheduleViewTheme : BindableObject
     {
         get => (Color)GetValue(BackgroundProperty);
         set => SetValue(BackgroundProperty, value);
+    }
+
+    /// <summary>Background color of the sticky header bar; null falls back to <see cref="Background"/>.</summary>
+    public Color? HeaderBackground
+    {
+        get => (Color?)GetValue(HeaderBackgroundProperty);
+        set => SetValue(HeaderBackgroundProperty, value);
     }
 
     /// <summary>Primary text color (block titles, prominent header text).</summary>

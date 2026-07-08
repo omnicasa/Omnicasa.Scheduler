@@ -187,7 +187,8 @@ public class MonthCalendarView : ContentView
         var title = new Label
         {
             Text = new DateTime(year, month, 1).ToString("MMMM yyyy", CultureInfo.CurrentCulture),
-            FontSize = 22,
+            FontSize = Theme.MonthHeaderFontSize ?? 22,
+            FontFamily = Theme.FontFamily,
             FontAttributes = FontAttributes.Bold,
             TextColor = Theme.Accent,
             Margin = new Thickness(2, 12, 0, 4),

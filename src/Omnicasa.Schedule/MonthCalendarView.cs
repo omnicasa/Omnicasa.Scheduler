@@ -217,7 +217,9 @@ public class MonthCalendarView : ContentView
     // One month per screen: each block fills the viewport height (continuous vertical scroll).
     private void ApplyOneMonthPerScreen()
     {
-        if (Height <= 0)
+        // An unbounded measure (e.g. hosted in an Auto row or vertical stack) reports an absurd
+        // height; sizing blocks to it would explode the scroll content into CALayer NaN territory.
+        if (Height <= 0 || !double.IsFinite(Height) || Height > 10000)
         {
             return;
         }

@@ -254,8 +254,6 @@ public class ScheduleView : ContentView
 
     private readonly IDispatcherTimer longPressTimer;
 
-    private Grid rootGrid = null!;
-
     private PointF pointerDownPoint;
 
     private bool pointerDown;
@@ -383,7 +381,7 @@ public class ScheduleView : ContentView
         longPressTimer.IsRepeating = false;
         longPressTimer.Tick += OnLongPressTick;
 
-        rootGrid = new Grid
+        var root = new Grid
         {
             RowDefinitions =
             {
@@ -392,13 +390,13 @@ public class ScheduleView : ContentView
                 new RowDefinition { Height = GridLength.Star },
             },
         };
-        rootGrid.Children.Add(headerCanvas);
+        root.Children.Add(headerCanvas);
         Grid.SetRow(headerCanvas, 0);
-        rootGrid.Children.Add(allDayCanvas);
+        root.Children.Add(allDayCanvas);
         Grid.SetRow(allDayCanvas, 1);
-        rootGrid.Children.Add(bodyScroll);
+        root.Children.Add(bodyScroll);
         Grid.SetRow(bodyScroll, 2);
-        Content = rootGrid;
+        Content = root;
 
         Loaded += (_, _) =>
         {
@@ -827,7 +825,6 @@ public class ScheduleView : ContentView
         headerCanvas.HeightRequest = inhouseHeader ? headerHeight : 0;
         headerCanvas.IsVisible = inhouseHeader;
         headerRow.Height = inhouseHeader ? GridLength.Auto : new GridLength(0);
-        AttachCanvas(headerCanvas, row: 0, attach: inhouseHeader);
         bodyCanvas.HeightRequest = context.Scale.TotalHeight;
 
         var items = new List<IScheduleItem>();
@@ -863,7 +860,6 @@ public class ScheduleView : ContentView
         allDayCanvas.HeightRequest = inhouseAllDay ? panelHeight : 0;
         allDayCanvas.IsVisible = inhouseAllDay && panelHeight > 0;
         allDayRow.Height = allDayCanvas.IsVisible ? GridLength.Auto : new GridLength(0);
-        AttachCanvas(allDayCanvas, row: 1, attach: inhouseAllDay && panelHeight > 0);
 
         headerCanvas.Invalidate();
         allDayCanvas.Invalidate();
@@ -876,27 +872,6 @@ public class ScheduleView : ContentView
         if (VerticalOffset > 0 && Math.Abs(bodyScroll.ScrollY - VerticalOffset) >= 0.5)
         {
             Dispatcher.Dispatch(() => ApplyVerticalOffset(VerticalOffset));
-        }
-    }
-
-    // A suppressed canvas is removed from the grid entirely: zeroed rows/height requests alone
-    // still leave a few points of phantom height on iOS inside recycled carousel cells.
-    private void AttachCanvas(GraphicsView canvas, int row, bool attach)
-    {
-        if (rootGrid is null)
-        {
-            return;
-        }
-
-        bool attached = rootGrid.Children.Contains(canvas);
-        if (attach && !attached)
-        {
-            rootGrid.Children.Insert(row == 0 ? 0 : rootGrid.Children.Count - 1, canvas);
-            Grid.SetRow(canvas, row);
-        }
-        else if (!attach && attached)
-        {
-            rootGrid.Children.Remove(canvas);
         }
     }
 

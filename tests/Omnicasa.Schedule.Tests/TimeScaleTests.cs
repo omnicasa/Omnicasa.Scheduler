@@ -12,6 +12,21 @@ public class TimeScaleTests
         Assert.Equal(48 + (60 * 24), scale.TotalHeight);
     }
 
+    [Fact]
+    public void TotalHeight_IncludesBottomPadding()
+    {
+        var scale = new TimeScale(60, topPadding: 48, bottomPadding: 32);
+        Assert.Equal(48 + (60 * 24) + 32, scale.TotalHeight);
+    }
+
+    [Fact]
+    public void BottomPadding_DoesNotShiftTimeMapping()
+    {
+        var scale = new TimeScale(60, topPadding: 48, bottomPadding: 32);
+        Assert.Equal(48, scale.YForTime(TimeSpan.Zero), precision: 3);
+        Assert.Equal(48 + (60 * 24), scale.YForTime(TimeSpan.FromHours(24)), precision: 3);
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(1, 60)]

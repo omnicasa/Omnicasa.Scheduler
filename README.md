@@ -135,7 +135,8 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `HoldingSchedule` | `null` | An `IScheduleItem` "held" block — drag to move (free vertical, snap to column) and resize via corner handles. Reports drops via `HoldingDropped`; never mutates the item. |
 | `VerticalOffset` | `0` | Two-way scroll offset (pixels). Bind several pages to one value to keep a `CarouselView` of schedules in sync. |
 | `HeaderMode` | `Inhouse` | Where the day header (and all-day panel) renders: `Inhouse` (pinned inside the control), `Linked` (suppressed — an external [`ScheduleHeaderView`](#scheduleheaderview) draws them), `None` (no header; all-day panel stays). |
-| `TopContentInset` | `0` | Blank space above midnight inside the scrollable body. Use with `Linked` + an overlaid header so hour 0 starts below the glass bar while content scrolls under it. |
+| `TopContentInset` | `0` | Blank space above midnight inside the scrollable body. Use with `Linked` + an overlaid header so hour 0 starts below the glass bar while content scrolls under it, or a few points so the first hour label ("00:00") renders fully. Paint into it via `Renderer.DrawBodyHeader`. |
+| `BottomContentInset` | `0` | Blank space below the 24:00 line inside the scrollable body, so the last hour label ("24:00") renders fully. Paint into it via `Renderer.DrawBodyFooter`. |
 | `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
 | `Renderer` | built-in | `ScheduleViewRenderer` — see [Custom rendering](#custom-rendering). |
 | `ItemActionsProvider` | `null` | `Func<IScheduleItem, IReadOnlyList<ScheduleMenuAction>>`; return actions (label + optional icon) to show a native long-press menu (iOS context menu / Android `PopupMenu`). |
@@ -316,7 +317,8 @@ public sealed class MyRenderer : ScheduleViewRenderer
 
     // Other overridable primitives (defaults reproduce the built-in look):
     //   DrawHeader, DrawHeaderBackground, DrawHourGrid, DrawColumnSeparators,
-    //   DrawTodayMarker, DrawTypingItem, DrawHoldingItem, DrawAllDayItem, DrawBackground
+    //   DrawTodayMarker, DrawTypingItem, DrawHoldingItem, DrawAllDayItem, DrawBackground,
+    //   DrawBodyHeader / DrawBodyFooter (the TopContentInset / BottomContentInset strips)
 }
 ```
 

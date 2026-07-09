@@ -266,22 +266,39 @@ public class ScheduleViewRenderer
         {
             float y = scale.YForTime(TimeSpan.FromHours(hr));
             canvas.DrawLine(contentX, y, width, y);
-            if (hr >= 24)
-            {
-                continue;
-            }
 
             string label = HourLabelFormatter.Format(hr, theme.HourLabelFormat);
+
+            // Keep the 00:00 / 24:00 labels inside the canvas when there is no inset to center in.
+            float labelY = Math.Clamp(y - (labelBoxH / 2f), 0f, scale.TotalHeight - labelBoxH);
 
             canvas.DrawString(
                 label,
                 4,
-                y - (labelBoxH / 2f),
+                labelY,
                 ctx.TimeRailWidth - 8,
                 labelBoxH,
                 HorizontalAlignment.Right,
                 VerticalAlignment.Top);
         }
+    }
+
+    /// <summary>
+    /// Draws the header strip inside the scrollable body — the <c>TopContentInset</c> area above
+    /// the 00:00 line (rect spans the full canvas width). Default draws nothing (the body
+    /// background shows through). Only called when the inset is &gt; 0.
+    /// </summary>
+    public virtual void DrawBodyHeader(ICanvas canvas, RectF rect, ScheduleRenderContext ctx)
+    {
+    }
+
+    /// <summary>
+    /// Draws the footer strip inside the scrollable body — the <c>BottomContentInset</c> area
+    /// below the 24:00 line (rect spans the full canvas width). Default draws nothing (the body
+    /// background shows through). Only called when the inset is &gt; 0.
+    /// </summary>
+    public virtual void DrawBodyFooter(ICanvas canvas, RectF rect, ScheduleRenderContext ctx)
+    {
     }
 
     /// <summary>Draws the vertical separators between columns.</summary>

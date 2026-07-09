@@ -199,6 +199,16 @@ public class ScheduleView : ContentView
             propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
             coerceValue: (_, v) => Math.Max(0.0, (double)v));
 
+    /// <summary>Bindable property for <see cref="BottomContentInset"/>.</summary>
+    public static readonly BindableProperty BottomContentInsetProperty =
+        BindableProperty.Create(
+            nameof(BottomContentInset),
+            typeof(double),
+            typeof(ScheduleView),
+            0.0,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
+            coerceValue: (_, v) => Math.Max(0.0, (double)v));
+
     /// <summary>Bindable property for <see cref="HeaderMode"/>.</summary>
     public static readonly BindableProperty HeaderModeProperty =
         BindableProperty.Create(
@@ -228,6 +238,13 @@ public class ScheduleView : ContentView
     private readonly ScheduleAllDayDrawable allDayDrawable;
 
     private readonly GraphicsView headerCanvas;
+
+    // Hidden canvases must collapse via their row heights: a hidden child with HeightRequest=0
+    // still leaves the Auto row a few points tall, pushing the body scroll down (visible as a
+    // bare strip behind a transparent linked header).
+    private readonly RowDefinition headerRow = new RowDefinition { Height = GridLength.Auto };
+
+    private readonly RowDefinition allDayRow = new RowDefinition { Height = GridLength.Auto };
 
     private readonly GraphicsView allDayCanvas;
 
@@ -368,8 +385,8 @@ public class ScheduleView : ContentView
         {
             RowDefinitions =
             {
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
+                headerRow,
+                allDayRow,
                 new RowDefinition { Height = GridLength.Star },
             },
         };
@@ -543,6 +560,18 @@ public class ScheduleView : ContentView
     {
         get => (double)GetValue(TopContentInsetProperty);
         set => SetValue(TopContentInsetProperty, value);
+    }
+
+    /// <summary>
+    /// Blank space below the 24:00 line inside the scrollable body, in logical pixels. Give it a
+    /// few points (e.g. the hour-label font size) so the last hour label stays fully visible
+    /// instead of being clipped by the bottom edge; pair with <see cref="TopContentInset"/> for
+    /// the 00:00 label. Paint into the strip via <see cref="ScheduleViewRenderer.DrawBodyFooter"/>.
+    /// </summary>
+    public double BottomContentInset
+    {
+        get => (double)GetValue(BottomContentInsetProperty);
+        set => SetValue(BottomContentInsetProperty, value);
     }
 
     /// <summary>Render state shared with a linked <see cref="ScheduleHeaderView"/>.</summary>
@@ -790,11 +819,12 @@ public class ScheduleView : ContentView
         context.Theme = theme;
         context.TimeRailWidth = (float)theme.TimeRailWidth;
         context.HeaderHeight = headerHeight;
-        context.Scale = new TimeScale((float)HourHeight, (float)TopContentInset);
+        context.Scale = new TimeScale((float)HourHeight, (float)TopContentInset, (float)BottomContentInset);
 
         bool inhouseHeader = HeaderMode == ScheduleHeaderMode.Inhouse && (personsMode || days > 1);
         headerCanvas.HeightRequest = inhouseHeader ? headerHeight : 0;
         headerCanvas.IsVisible = inhouseHeader;
+        headerRow.Height = inhouseHeader ? GridLength.Auto : new GridLength(0);
         bodyCanvas.HeightRequest = context.Scale.TotalHeight;
 
         var items = new List<IScheduleItem>();
@@ -829,6 +859,7 @@ public class ScheduleView : ContentView
         float panelHeight = laneCount > 0 ? (laneCount * AllDayLaneHeight) + 6f : 0f;
         allDayCanvas.HeightRequest = inhouseAllDay ? panelHeight : 0;
         allDayCanvas.IsVisible = inhouseAllDay && panelHeight > 0;
+        allDayRow.Height = allDayCanvas.IsVisible ? GridLength.Auto : new GridLength(0);
 
         headerCanvas.Invalidate();
         allDayCanvas.Invalidate();
@@ -1446,7 +1477,7 @@ public class ScheduleView : ContentView
                 var target = Math.Clamp(pinchBase * pinchScale, 24, 200);
                 if (Math.Abs(target - context.Scale.HourHeight) >= 1.0)
                 {
-                    context.Scale = new TimeScale((float)target, context.Scale.TopPadding);
+                    context.Scale = new TimeScale((float)target, context.Scale.TopPadding, context.Scale.BottomPadding);
                     bodyCanvas.HeightRequest = context.Scale.TotalHeight;
                     bodyCanvas.Invalidate();
                     KeepAnchorPinned();

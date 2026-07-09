@@ -120,7 +120,7 @@ public class ScheduleViewRendererTests
     }
 
     [Fact]
-    public void DrawHourGrid_Draws25HourLinesAnd24Labels()
+    public void DrawHourGrid_Draws25HourLinesAnd25Labels()
     {
         var canvas = new RecordingCanvas();
         var ctx = new ScheduleRenderContext
@@ -133,7 +133,7 @@ public class ScheduleViewRendererTests
         new ScheduleViewRenderer().DrawHourGrid(canvas, 320, 56, ctx);
 
         Assert.Equal(25, canvas.DrawLineCount);                 // 0..24 inclusive
-        Assert.Equal(24, canvas.Strings.Count(s => s.Contains("AM") || s.Contains("PM")));
+        Assert.Equal(25, canvas.Strings.Count(s => s.Contains("AM") || s.Contains("PM")));
     }
 
     [Fact]
@@ -151,6 +151,23 @@ public class ScheduleViewRendererTests
 
         Assert.Contains("23", canvas.Strings);
         Assert.DoesNotContain(canvas.Strings, s => s.Contains("AM") || s.Contains("PM"));
+    }
+
+    [Fact]
+    public void DrawHourGrid_TwentyFourHourFormat_DrawsMidnightAndEndOfDayLabels()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme { HourLabelFormat = "HH:mm" },
+            Scale = new TimeScale(60),
+            TimeRailWidth = 56,
+        };
+
+        new ScheduleViewRenderer().DrawHourGrid(canvas, 320, 56, ctx);
+
+        Assert.Contains("00:00", canvas.Strings);
+        Assert.Contains("24:00", canvas.Strings);
     }
 
     [Fact]
@@ -377,11 +394,68 @@ public class ScheduleViewRendererTests
         Assert.Empty(canvas.Strings);
     }
 
+    [Fact]
+    public void BodyDrawable_WithInsets_CallsBodyHeaderAndFooterWithStripRects()
+    {
+        var canvas = new RecordingCanvas();
+        var renderer = new SpacerMarkerRenderer();
+        var drawable = new ScheduleBodyDrawable
+        {
+            Renderer = renderer,
+            Context = new ScheduleRenderContext
+            {
+                Theme = new ScheduleViewTheme(),
+                Scale = new TimeScale(60, topPadding: 24, bottomPadding: 16),
+                TimeRailWidth = 56,
+                Columns = new[] { new ScheduleViewColumn { DayStart = Day } },
+            },
+        };
+
+        drawable.Draw(canvas, new RectF(0, 0, 320, 24 + (60 * 24) + 16));
+
+        Assert.Equal(new RectF(0, 0, 320, 24), renderer.HeaderRect);
+        Assert.Equal(new RectF(0, 24 + (60 * 24), 320, 16), renderer.FooterRect);
+    }
+
+    [Fact]
+    public void BodyDrawable_NoInsets_SkipsBodyHeaderAndFooter()
+    {
+        var canvas = new RecordingCanvas();
+        var renderer = new SpacerMarkerRenderer();
+        var drawable = new ScheduleBodyDrawable
+        {
+            Renderer = renderer,
+            Context = new ScheduleRenderContext
+            {
+                Theme = new ScheduleViewTheme(),
+                Scale = new TimeScale(60),
+                TimeRailWidth = 56,
+                Columns = new[] { new ScheduleViewColumn { DayStart = Day } },
+            },
+        };
+
+        drawable.Draw(canvas, new RectF(0, 0, 320, 60 * 24));
+
+        Assert.Null(renderer.HeaderRect);
+        Assert.Null(renderer.FooterRect);
+    }
+
     private sealed class MarkerRenderer : ScheduleViewRenderer
     {
         public bool Called { get; private set; }
 
         public override void DrawAppointment(ScheduleAppointmentContext ctx) => Called = true;
+    }
+
+    private sealed class SpacerMarkerRenderer : ScheduleViewRenderer
+    {
+        public RectF? HeaderRect { get; private set; }
+
+        public RectF? FooterRect { get; private set; }
+
+        public override void DrawBodyHeader(ICanvas canvas, RectF rect, ScheduleRenderContext ctx) => HeaderRect = rect;
+
+        public override void DrawBodyFooter(ICanvas canvas, RectF rect, ScheduleRenderContext ctx) => FooterRect = rect;
     }
 
     private sealed class HoldingMarkerRenderer : ScheduleViewRenderer

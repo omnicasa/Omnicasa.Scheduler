@@ -239,8 +239,25 @@ public sealed class ScheduleBodyDrawable : IDrawable
 
         Renderer.DrawColumnSeparators(canvas, contentX, colW, n, h, theme);
         Renderer.DrawTodayMarker(canvas, contentX, colW, ctx);
+        DrawBodySpacers(canvas, w);
         DrawTypingItem(canvas, contentX, colW);
         DrawHoldingItem(canvas, contentX, colW);
+    }
+
+    // Header / footer strips inside the scrollable body (the top/bottom content insets),
+    // painted over the grid but under the typing/holding overlays.
+    private void DrawBodySpacers(ICanvas canvas, float w)
+    {
+        var scale = Context.Scale;
+        if (scale.TopPadding > 0)
+        {
+            Renderer.DrawBodyHeader(canvas, new RectF(0, 0, w, scale.TopPadding), Context);
+        }
+
+        if (scale.BottomPadding > 0)
+        {
+            Renderer.DrawBodyFooter(canvas, new RectF(0, scale.TotalHeight - scale.BottomPadding, w, scale.BottomPadding), Context);
+        }
     }
 
     private void DrawColumnItems(ICanvas canvas, int columnIndex, float x0, float colW)

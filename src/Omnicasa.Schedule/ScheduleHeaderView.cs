@@ -166,6 +166,12 @@ public class ScheduleHeaderView : ContentView
 
     private readonly GraphicsView allDayCanvas;
 
+    // Hidden canvases must collapse via their row heights: a hidden child with HeightRequest=0
+    // still leaves the Auto row a few points tall (stray strip under the day bar).
+    private readonly RowDefinition dayRow = new RowDefinition { Height = GridLength.Auto };
+
+    private readonly RowDefinition allDayRow = new RowDefinition { Height = GridLength.Auto };
+
     private readonly Grid root;
 
     private readonly Shadow edgeShadow;
@@ -196,8 +202,8 @@ public class ScheduleHeaderView : ContentView
         {
             RowDefinitions =
             {
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Auto },
+                dayRow,
+                allDayRow,
             },
         };
         root.Children.Add(headerCanvas);
@@ -389,6 +395,7 @@ public class ScheduleHeaderView : ContentView
         bool hasColumns = ctx.Columns.Count > 0;
         headerCanvas.HeightRequest = hasColumns ? ctx.HeaderHeight : 0;
         headerCanvas.IsVisible = hasColumns && ctx.HeaderHeight > 0;
+        dayRow.Height = headerCanvas.IsVisible ? GridLength.Auto : new GridLength(0);
 
         int laneCount = 0;
         foreach (var bar in ctx.AllDayBars)
@@ -399,6 +406,7 @@ public class ScheduleHeaderView : ContentView
         float panelHeight = laneCount > 0 ? (laneCount * ctx.AllDayLaneHeight) + 6f : 0f;
         allDayCanvas.HeightRequest = ShowAllDay ? panelHeight : 0;
         allDayCanvas.IsVisible = ShowAllDay && panelHeight > 0;
+        allDayRow.Height = allDayCanvas.IsVisible ? GridLength.Auto : new GridLength(0);
 
         headerCanvas.Invalidate();
         allDayCanvas.Invalidate();

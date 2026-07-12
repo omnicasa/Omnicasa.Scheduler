@@ -10,6 +10,7 @@
         <ToolbarItem Text="Carousel" Clicked="OnOpenCarousel" />
         <ToolbarItem Text="Glass" Clicked="OnOpenGlass" />
         <ToolbarItem Text="Agenda" Clicked="OnOpenAgenda" />
+        <ToolbarItem Text="Recurring" Clicked="OnOpenRecurring" />
         <ToolbarItem Text="Widget" Clicked="OnOpenWidget" />
     </ContentPage.ToolbarItems>
 

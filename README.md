@@ -398,6 +398,34 @@ schedule.HoldingDropped += (_, e) =>
 
 If you don't apply it, the block springs back to its original position (the gesture is reported, not committed).
 
+## Recurring events (`RecurrenceExpander`)
+
+`RecurrenceExpander.Expand` turns one template `IScheduleItem` plus a `RecurrenceRule` into concrete occurrences over a window — pure logic, no changes to `ScheduleView`. It preserves the template's time-of-day and duration, never mutates the template, and gives each occurrence a unique id (`templateId#index`). Feed the result straight into `ItemsSource`.
+
+`RecurrenceRule` supports `Daily`, `Weekly` (with optional `ByWeekday`), and `Monthly` (same day-of-month, skipping months where that day doesn't exist), bounded by `Interval`, `Count`, and/or `Until`.
+
+```csharp
+var template = new Appointment
+{
+    Id = "standup",
+    Title = "Daily standup",
+    Start = weekStart.AddHours(9.5),
+    End = weekStart.AddHours(10),
+    Color = Colors.MediumSeaGreen,
+};
+
+var rule = new RecurrenceRule
+{
+    Frequency = RecurrenceFrequency.Weekly,
+    ByWeekday = new[] { DayOfWeek.Monday, DayOfWeek.Wednesday, DayOfWeek.Friday },
+};
+
+// Materialize only the occurrences intersecting the visible week.
+schedule.ItemsSource = RecurrenceExpander.Expand(template, rule, weekStart, weekEnd.AddDays(1));
+```
+
+Expansion stops at the first of: `Count` reached, `Until` passed, or the window end. Only occurrences overlapping `[windowStart, windowEnd]` are returned. See `RecurringSchedulePage` in the sample app.
+
 ## Sample app
 
 The repo contains a runnable sample under `samples/Omnicasa.Schedule.Sample` that wires the controls to an in-memory source of randomized appointments and drills down year → month → day with an animated zoom on tap.

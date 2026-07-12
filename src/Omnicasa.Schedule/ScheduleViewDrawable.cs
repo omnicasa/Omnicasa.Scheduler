@@ -203,6 +203,26 @@ public sealed class ScheduleBodyDrawable : IDrawable
     /// <inheritdoc />
     public void Draw(ICanvas canvas, RectF dirtyRect)
     {
+        long started = ScheduleDiagnostics.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        try
+        {
+            DrawCore(canvas, dirtyRect);
+        }
+        finally
+        {
+            if (started != 0)
+            {
+                var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                if (ms >= ScheduleDiagnostics.SlowDrawMilliseconds)
+                {
+                    ScheduleDiagnostics.Log($"body draw {ms:F1}ms cols={Context.Columns.Count} size={dirtyRect.Width:F0}x{dirtyRect.Height:F0}");
+                }
+            }
+        }
+    }
+
+    private void DrawCore(ICanvas canvas, RectF dirtyRect)
+    {
         hitMap.Clear();
         typingRect = null;
         holdingRect = null;

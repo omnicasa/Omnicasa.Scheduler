@@ -254,6 +254,11 @@ public class ScheduleView : ContentView
 
     private readonly IDispatcherTimer longPressTimer;
 
+    // Debounces VerticalOffset publication: pushing the offset per scrolled frame fanned out
+    // through the binding to every live carousel page (each re-scrolling natively) at frame
+    // rate. Synced siblings only need the offset once scrolling settles.
+    private readonly IDispatcherTimer offsetPublishTimer;
+
     private PointF pointerDownPoint;
 
     private bool pointerDown;
@@ -265,6 +270,15 @@ public class ScheduleView : ContentView
     // Breaks the feedback loop between user scrolling (updates VerticalOffset) and a
     // bound VerticalOffset (scrolls the view) so synced carousel pages don't fight.
     private bool suppressOffsetSync;
+
+    // Coalesces the rebuilds triggered by property changes: realizing a carousel page applies
+    // ~15 bindings back-to-back, which used to run a full rebuild (and full-height redraw) per
+    // property. One dispatched pass per UI cycle instead.
+    private bool rebuildQueued;
+
+    private int rebuildCount;
+
+    private double? pendingOffset;
 
     private double pinchBase = 60;
 
@@ -380,6 +394,11 @@ public class ScheduleView : ContentView
         longPressTimer.Interval = TimeSpan.FromMilliseconds(LongPressMilliseconds);
         longPressTimer.IsRepeating = false;
         longPressTimer.Tick += OnLongPressTick;
+
+        offsetPublishTimer = Dispatcher.CreateTimer();
+        offsetPublishTimer.Interval = TimeSpan.FromMilliseconds(150);
+        offsetPublishTimer.IsRepeating = false;
+        offsetPublishTimer.Tick += (_, _) => PublishPendingOffset();
 
         var root = new Grid
         {
@@ -588,6 +607,9 @@ public class ScheduleView : ContentView
     /// <returns>A task that completes when the scroll finishes.</returns>
     public Task ScrollToTimeAsync(TimeSpan timeOfDay, bool animated = false)
     {
+        // Property changes queue their rebuild; run it now so the time→pixel scale is current.
+        FlushPendingRebuild();
+
         // Minus the inset so the time lands just below an overlaid header, not under it.
         double offset = context.Scale.YForTime(timeOfDay) - context.Scale.TopPadding;
 
@@ -773,8 +795,9 @@ public class ScheduleView : ContentView
         }
     }
 
-    // The user (or momentum) scrolled the body: publish the new offset so any view bound to the
-    // same VerticalOffset value follows along.
+    // The user (or momentum) scrolled the body: remember the offset and publish it once
+    // scrolling settles. Synced siblings aren't visible mid-scroll, so per-frame publication
+    // only cost main-thread time (binding fan-out + native re-scrolls on every live page).
     private void OnBodyScrolled(double scrollY)
     {
         if (suppressOffsetSync)
@@ -782,8 +805,21 @@ public class ScheduleView : ContentView
             return;
         }
 
+        pendingOffset = scrollY;
+        offsetPublishTimer.Stop();
+        offsetPublishTimer.Start();
+    }
+
+    private void PublishPendingOffset()
+    {
+        if (pendingOffset is not { } offset)
+        {
+            return;
+        }
+
+        pendingOffset = null;
         suppressOffsetSync = true;
-        VerticalOffset = scrollY;
+        VerticalOffset = offset;
         suppressOffsetSync = false;
     }
 
@@ -805,8 +841,40 @@ public class ScheduleView : ContentView
         suppressOffsetSync = false;
     }
 
+    // Coalesced entry point: any number of property changes within one UI cycle produce a
+    // single rebuild pass on the next dispatcher drain.
     private void Rebuild()
     {
+        if (rebuildQueued)
+        {
+            return;
+        }
+
+        rebuildQueued = true;
+        Dispatcher.Dispatch(() =>
+        {
+            rebuildQueued = false;
+            RebuildNow();
+        });
+    }
+
+    // Runs a queued rebuild immediately; for code paths that read the rebuilt state
+    // (context.Scale, columns) right after setting properties.
+    private void FlushPendingRebuild()
+    {
+        if (!rebuildQueued)
+        {
+            return;
+        }
+
+        rebuildQueued = false;
+        RebuildNow();
+    }
+
+    private void RebuildNow()
+    {
+        long started = ScheduleDiagnostics.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+
         var theme = Theme;
         var personsMode = Persons is not null && Persons.Count > 0;
 
@@ -866,10 +934,17 @@ public class ScheduleView : ContentView
         bodyCanvas.Invalidate();
         Rebuilt?.Invoke(this, EventArgs.Empty);
 
+        if (started != 0)
+        {
+            var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            ScheduleDiagnostics.Log($"rebuild #{++rebuildCount} {ms:F1}ms items={items.Count} days={days} cols={context.Columns.Count} h={context.Scale.TotalHeight:F0}");
+        }
+
         // The canvas height may have changed (zoom, day/theme switch) without a new offset value,
         // so a synced sibling keeps a stale or clamped ScrollY. Re-seat the bound offset once the
-        // ScrollView has remeasured (same defer as the Loaded jump).
-        if (VerticalOffset > 0 && Math.Abs(bodyScroll.ScrollY - VerticalOffset) >= 0.5)
+        // ScrollView has remeasured (same defer as the Loaded jump). Skip while the user is
+        // actively scrolling (a publish is pending) — the bound value is stale then by design.
+        if (pendingOffset is null && VerticalOffset > 0 && Math.Abs(bodyScroll.ScrollY - VerticalOffset) >= 0.5)
         {
             Dispatcher.Dispatch(() => ApplyVerticalOffset(VerticalOffset));
         }

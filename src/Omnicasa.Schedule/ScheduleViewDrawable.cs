@@ -57,6 +57,9 @@ public sealed class ScheduleRenderContext
     /// </summary>
     public float TypingScale { get; set; } = 1f;
 
+    /// <summary>Unavailable / blockout background bands painted behind appointments.</summary>
+    public List<IScheduleBlockout> Blockouts { get; set; } = new List<IScheduleBlockout>();
+
     /// <summary>All-day / cross-date bars shown in the panel above the time grid.</summary>
     public IReadOnlyList<AllDayBar> AllDayBars { get; set; } = Array.Empty<AllDayBar>();
 
@@ -254,6 +257,7 @@ public sealed class ScheduleBodyDrawable : IDrawable
         for (int i = 0; i < n; i++)
         {
             float x0 = contentX + (i * colW);
+            DrawColumnBlockouts(canvas, i, x0, colW);
             DrawColumnItems(canvas, i, x0, colW);
         }
 
@@ -277,6 +281,57 @@ public sealed class ScheduleBodyDrawable : IDrawable
         if (scale.BottomPadding > 0)
         {
             Renderer.DrawBodyFooter(canvas, new RectF(0, scale.TotalHeight - scale.BottomPadding, w, scale.BottomPadding), Context);
+        }
+    }
+
+    // Unavailable bands sit behind the column's appointments. A null PersonId band spans every
+    // column of the day; a scoped one only paints its matching person column.
+    private void DrawColumnBlockouts(ICanvas canvas, int columnIndex, float x0, float colW)
+    {
+        var blockouts = Context.Blockouts;
+        if (blockouts.Count == 0)
+        {
+            return;
+        }
+
+        var column = Context.Columns[columnIndex];
+        var dayStart = column.DayStart;
+        var dayEnd = dayStart.AddDays(1);
+        var theme = Context.Theme;
+        var scale = Context.Scale;
+
+        foreach (var blockout in blockouts)
+        {
+            if (blockout.PersonId is not null
+                && !string.Equals(blockout.PersonId, column.PersonId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (blockout.End <= dayStart || blockout.Start >= dayEnd)
+            {
+                continue;
+            }
+
+            var clipStart = blockout.Start < dayStart ? dayStart : blockout.Start;
+            var clipEnd = blockout.End > dayEnd ? dayEnd : blockout.End;
+            if (clipEnd <= clipStart)
+            {
+                continue;
+            }
+
+            float y1 = scale.YForTime(clipStart - dayStart);
+            float y2 = scale.YForTime(clipEnd - dayStart);
+            var rect = new RectF(x0 + 1, y1, colW - 2, MathF.Max(y2 - y1, 1));
+
+            Renderer.DrawBlockout(new ScheduleBlockoutContext
+            {
+                Canvas = canvas,
+                Blockout = blockout,
+                Rect = rect,
+                Color = blockout.Color ?? theme.Muted,
+                Theme = theme,
+            });
         }
     }
 

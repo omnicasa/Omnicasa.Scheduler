@@ -9,6 +9,7 @@
         <ToolbarItem Text="Schedule" Clicked="OnOpenSchedule" />
         <ToolbarItem Text="Carousel" Clicked="OnOpenCarousel" />
         <ToolbarItem Text="Glass" Clicked="OnOpenGlass" />
+        <ToolbarItem Text="Blockout" Clicked="OnOpenBlockout" />
         <ToolbarItem Text="Agenda" Clicked="OnOpenAgenda" />
         <ToolbarItem Text="Widget" Clicked="OnOpenWidget" />
     </ContentPage.ToolbarItems>

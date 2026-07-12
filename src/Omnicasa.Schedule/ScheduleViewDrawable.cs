@@ -48,6 +48,9 @@ public sealed class ScheduleRenderContext
     /// <summary>Optional "now" timestamp used to draw the today marker.</summary>
     public DateTime? Now { get; set; }
 
+    /// <summary>When false, the "now" / today marker is not painted even if <see cref="Now"/> is set.</summary>
+    public bool ShowNowIndicator { get; set; } = true;
+
     /// <summary>Optional draft / typing item rendered as a shadowed overlay over the body.</summary>
     public ITypingScheduleItem? TypingItem { get; set; }
 

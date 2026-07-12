@@ -96,6 +96,8 @@ public class ScheduleView : ContentView
 
     private const float AllDayLaneHeight = 22f;
 
+    private const int NowTickSeconds = 60;
+
     /// <summary>Bindable property for <see cref="StartDay"/>.</summary>
     public static readonly BindableProperty StartDayProperty =
         BindableProperty.Create(
@@ -227,6 +229,15 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnHoldingScheduleChanged(o as IScheduleItem, n as IScheduleItem));
 
+    /// <summary>Bindable property for <see cref="ShowCurrentTimeIndicator"/>.</summary>
+    public static readonly BindableProperty ShowCurrentTimeIndicatorProperty =
+        BindableProperty.Create(
+            nameof(ShowCurrentTimeIndicator),
+            typeof(bool),
+            typeof(ScheduleView),
+            true,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).OnShowCurrentTimeIndicatorChanged());
+
     private readonly ScheduleViewTheme fallbackTheme = new ScheduleViewTheme();
 
     private readonly ScheduleRenderContext context = new ScheduleRenderContext();
@@ -258,6 +269,10 @@ public class ScheduleView : ContentView
     // through the binding to every live carousel page (each re-scrolling natively) at frame
     // rate. Synced siblings only need the offset once scrolling settles.
     private readonly IDispatcherTimer offsetPublishTimer;
+
+    // Ticks once a minute to advance context.Now so the now-line tracks the wall clock without a
+    // full rebuild. Runs only while the view is attached (started/stopped with the handler).
+    private readonly IDispatcherTimer nowTimer;
 
     private PointF pointerDownPoint;
 
@@ -400,6 +415,11 @@ public class ScheduleView : ContentView
         offsetPublishTimer.IsRepeating = false;
         offsetPublishTimer.Tick += (_, _) => PublishPendingOffset();
 
+        nowTimer = Dispatcher.CreateTimer();
+        nowTimer.Interval = TimeSpan.FromSeconds(NowTickSeconds);
+        nowTimer.IsRepeating = true;
+        nowTimer.Tick += OnNowTick;
+
         var root = new Grid
         {
             RowDefinitions =
@@ -427,7 +447,11 @@ public class ScheduleView : ContentView
             {
                 Dispatcher.Dispatch(() => ApplyVerticalOffset(VerticalOffset));
             }
+
+            StartNowTimer();
         };
+
+        Unloaded += (_, _) => nowTimer.Stop();
     }
 
     /// <summary>Fired when the user taps an empty area of the body. Payload is the day + time of the tap.</summary>
@@ -556,6 +580,17 @@ public class ScheduleView : ContentView
     }
 
     /// <summary>
+    /// Whether the live current-time indicator (the "now" line + time badge) is painted on the day
+    /// that is today. Default true. While attached, the line ticks every minute so it tracks the
+    /// wall clock without a full rebuild. Set false to hide it entirely.
+    /// </summary>
+    public bool ShowCurrentTimeIndicator
+    {
+        get => (bool)GetValue(ShowCurrentTimeIndicatorProperty);
+        set => SetValue(ShowCurrentTimeIndicatorProperty, value);
+    }
+
+    /// <summary>
     /// Where the header (and all-day panel) is rendered. <see cref="ScheduleHeaderMode.Inhouse"/>
     /// draws them pinned inside this control (default). <see cref="ScheduleHeaderMode.Linked"/>
     /// suppresses both so an external <see cref="ScheduleHeaderView"/> (with its
@@ -621,6 +656,15 @@ public class ScheduleView : ContentView
 
         return bodyScroll.ScrollToAsync(0, offset, animated);
     }
+
+    /// <summary>
+    /// Scrolls the body so the current time of day sits at the top edge — a convenience over
+    /// <see cref="ScrollToTimeAsync"/> with <see cref="DateTime.Now"/>.
+    /// </summary>
+    /// <param name="animated">Whether to animate the scroll.</param>
+    /// <returns>A task that completes when the scroll finishes.</returns>
+    public Task ScrollToNowAsync(bool animated = true)
+        => ScrollToTimeAsync(DateTime.Now.TimeOfDay, animated);
 
     private enum TypingDragMode
     {
@@ -763,6 +807,40 @@ public class ScheduleView : ContentView
     }
 
     private void OnHoldingItemPropertyChanged(object? sender, PropertyChangedEventArgs e) => bodyCanvas.Invalidate();
+
+    private void OnShowCurrentTimeIndicatorChanged()
+    {
+        context.ShowNowIndicator = ShowCurrentTimeIndicator;
+        if (ShowCurrentTimeIndicator)
+        {
+            StartNowTimer();
+        }
+        else
+        {
+            nowTimer.Stop();
+        }
+
+        bodyCanvas.Invalidate();
+    }
+
+    // Advance the shared "now" and repaint just the body — the now-line follows the clock
+    // without the cost of a full rebuild.
+    private void OnNowTick(object? sender, EventArgs e)
+    {
+        context.Now = DateTime.Now;
+        bodyCanvas.Invalidate();
+    }
+
+    private void StartNowTimer()
+    {
+        if (!ShowCurrentTimeIndicator)
+        {
+            return;
+        }
+
+        context.Now = DateTime.Now;
+        nowTimer.Start();
+    }
 
     private void OnRendererChanged()
     {
@@ -909,6 +987,7 @@ public class ScheduleView : ContentView
 
         context.Columns = ScheduleColumnBuilder.Build(StartDay, EndDay, ViewMode, Persons, items);
         context.Now = DateTime.Now;
+        context.ShowNowIndicator = ShowCurrentTimeIndicator;
 
         // All-day / cross-date items go in the panel above the grid, spanning the days they cover.
         var bars = AllDayLayout.Layout(items.Where(AllDayLayout.IsSpanning), DateOnly.FromDateTime(rangeStart), days);

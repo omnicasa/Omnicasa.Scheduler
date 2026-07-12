@@ -248,6 +248,47 @@ public class ScheduleViewRenderer
         canvas.DrawLine(0, headerH, contentX + (colW * n), headerH);
     }
 
+    /// <summary>
+    /// Shades the off-hours bands (before <see cref="ScheduleRenderContext.WorkDayStart"/> and after
+    /// <see cref="ScheduleRenderContext.WorkDayEnd"/>) per column, using
+    /// <see cref="ScheduleViewTheme.OffHoursShade"/>. No-op unless
+    /// <see cref="ScheduleRenderContext.ShowOffHoursShading"/> is set. Drawn under the grid lines.
+    /// </summary>
+    public virtual void DrawOffHours(ICanvas canvas, float contentX, float colW, ScheduleRenderContext ctx)
+    {
+        if (!ctx.ShowOffHoursShading)
+        {
+            return;
+        }
+
+        int n = ctx.Columns.Count;
+        if (n <= 0 || colW <= 0)
+        {
+            return;
+        }
+
+        var scale = ctx.Scale;
+        float top = scale.YForTime(TimeSpan.Zero);
+        float bottom = scale.YForTime(TimeSpan.FromHours(24));
+        float startY = scale.YForTime(ctx.WorkDayStart);
+        float endY = scale.YForTime(ctx.WorkDayEnd);
+
+        canvas.FillColor = ctx.Theme.OffHoursShade;
+        for (int i = 0; i < n; i++)
+        {
+            float x = contentX + (i * colW);
+            if (startY > top)
+            {
+                canvas.FillRectangle(x, top, colW, startY - top);
+            }
+
+            if (bottom > endY)
+            {
+                canvas.FillRectangle(x, endY, colW, bottom - endY);
+            }
+        }
+    }
+
     /// <summary>Draws the left time-rail hour labels and the full-width hour grid lines.</summary>
     public virtual void DrawHourGrid(ICanvas canvas, float width, float contentX, ScheduleRenderContext ctx)
     {

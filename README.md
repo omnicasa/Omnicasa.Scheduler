@@ -135,6 +135,8 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `HoldingSchedule` | `null` | An `IScheduleItem` "held" block — drag to move (free vertical, snap to column) and resize via corner handles. Reports drops via `HoldingDropped`; never mutates the item. |
 | `VerticalOffset` | `0` | Two-way scroll offset (pixels). Bind several pages to one value to keep a `CarouselView` of schedules in sync. |
 | `HeaderMode` | `Inhouse` | Where the day header (and all-day panel) renders: `Inhouse` (pinned inside the control), `Linked` (suppressed — an external [`ScheduleHeaderView`](#scheduleheaderview) draws them), `None` (no header; all-day panel stays). |
+| `ShowOffHoursShading` | `false` | Tint the hours outside the working day (see [Off-hours shading](#business-hours--off-hours-shading)). |
+| `WorkDayStart` / `WorkDayEnd` | 08:00 / 18:00 | Working-day bounds used by `ShowOffHoursShading`. |
 | `TopContentInset` | `0` | Blank space above midnight inside the scrollable body. Use with `Linked` + an overlaid header so hour 0 starts below the glass bar while content scrolls under it, or a few points so the first hour label ("00:00") renders fully. Paint into it via `Renderer.DrawBodyHeader`. |
 | `BottomContentInset` | `0` | Blank space below the 24:00 line inside the scrollable body, so the last hour label ("24:00") renders fully. Paint into it via `Renderer.DrawBodyFooter`. |
 | `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
@@ -397,6 +399,22 @@ schedule.HoldingDropped += (_, e) =>
 ```
 
 If you don't apply it, the block springs back to its original position (the gesture is reported, not committed).
+
+## Business-hours / off-hours shading
+
+Set `ShowOffHoursShading="true"` to tint the hours outside the working day so the grid reads at a glance (like Outlook / Google Calendar). `WorkDayStart` (default 08:00) and `WorkDayEnd` (default 18:00) bound the working band; everything above the start and below the end is filled with `ScheduleViewTheme.OffHoursShade` — a subtle translucent grey by default. It's opt-in, so the look is unchanged until you turn it on, and it paints under the grid lines and events.
+
+```csharp
+var schedule = new ScheduleView
+{
+    ShowOffHoursShading = true,
+    WorkDayStart = TimeSpan.FromHours(9),
+    WorkDayEnd = TimeSpan.FromHours(17),
+};
+
+// Optional: adjust the tint (any translucent color works over the background).
+schedule.Theme.OffHoursShade = Color.FromRgba(0, 0, 0, 0.08);
+```
 
 ## Sample app
 

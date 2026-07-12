@@ -227,6 +227,33 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnHoldingScheduleChanged(o as IScheduleItem, n as IScheduleItem));
 
+    /// <summary>Bindable property for <see cref="WorkDayStart"/>.</summary>
+    public static readonly BindableProperty WorkDayStartProperty =
+        BindableProperty.Create(
+            nameof(WorkDayStart),
+            typeof(TimeSpan),
+            typeof(ScheduleView),
+            TimeSpan.FromHours(8),
+            propertyChanged: (b, _, _) => ((ScheduleView)b).ApplyOffHoursSettings());
+
+    /// <summary>Bindable property for <see cref="WorkDayEnd"/>.</summary>
+    public static readonly BindableProperty WorkDayEndProperty =
+        BindableProperty.Create(
+            nameof(WorkDayEnd),
+            typeof(TimeSpan),
+            typeof(ScheduleView),
+            TimeSpan.FromHours(18),
+            propertyChanged: (b, _, _) => ((ScheduleView)b).ApplyOffHoursSettings());
+
+    /// <summary>Bindable property for <see cref="ShowOffHoursShading"/>.</summary>
+    public static readonly BindableProperty ShowOffHoursShadingProperty =
+        BindableProperty.Create(
+            nameof(ShowOffHoursShading),
+            typeof(bool),
+            typeof(ScheduleView),
+            false,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).ApplyOffHoursSettings());
+
     private readonly ScheduleViewTheme fallbackTheme = new ScheduleViewTheme();
 
     private readonly ScheduleRenderContext context = new ScheduleRenderContext();
@@ -555,6 +582,30 @@ public class ScheduleView : ContentView
         set => SetValue(HoldingScheduleProperty, value);
     }
 
+    /// <summary>Start of the working day (default 08:00). Hours before it are shaded when <see cref="ShowOffHoursShading"/> is on.</summary>
+    public TimeSpan WorkDayStart
+    {
+        get => (TimeSpan)GetValue(WorkDayStartProperty);
+        set => SetValue(WorkDayStartProperty, value);
+    }
+
+    /// <summary>End of the working day (default 18:00). Hours after it are shaded when <see cref="ShowOffHoursShading"/> is on.</summary>
+    public TimeSpan WorkDayEnd
+    {
+        get => (TimeSpan)GetValue(WorkDayEndProperty);
+        set => SetValue(WorkDayEndProperty, value);
+    }
+
+    /// <summary>
+    /// When true, shades the hours outside [<see cref="WorkDayStart"/>, <see cref="WorkDayEnd"/>] with
+    /// <see cref="ScheduleViewTheme.OffHoursShade"/> so the working day reads at a glance. Off by default.
+    /// </summary>
+    public bool ShowOffHoursShading
+    {
+        get => (bool)GetValue(ShowOffHoursShadingProperty);
+        set => SetValue(ShowOffHoursShadingProperty, value);
+    }
+
     /// <summary>
     /// Where the header (and all-day panel) is rendered. <see cref="ScheduleHeaderMode.Inhouse"/>
     /// draws them pinned inside this control (default). <see cref="ScheduleHeaderMode.Linked"/>
@@ -841,6 +892,15 @@ public class ScheduleView : ContentView
         suppressOffsetSync = false;
     }
 
+    // Off-hours settings are pure paint state — push onto the context and repaint, no full rebuild.
+    private void ApplyOffHoursSettings()
+    {
+        context.WorkDayStart = WorkDayStart;
+        context.WorkDayEnd = WorkDayEnd;
+        context.ShowOffHoursShading = ShowOffHoursShading;
+        bodyCanvas.Invalidate();
+    }
+
     // Coalesced entry point: any number of property changes within one UI cycle produce a
     // single rebuild pass on the next dispatcher drain.
     private void Rebuild()
@@ -888,6 +948,9 @@ public class ScheduleView : ContentView
         context.TimeRailWidth = (float)theme.TimeRailWidth;
         context.HeaderHeight = headerHeight;
         context.Scale = new TimeScale((float)HourHeight, (float)TopContentInset, (float)BottomContentInset);
+        context.WorkDayStart = WorkDayStart;
+        context.WorkDayEnd = WorkDayEnd;
+        context.ShowOffHoursShading = ShowOffHoursShading;
 
         bool inhouseHeader = HeaderMode == ScheduleHeaderMode.Inhouse && (personsMode || days > 1);
         headerCanvas.HeightRequest = inhouseHeader ? headerHeight : 0;

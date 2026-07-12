@@ -23,6 +23,9 @@ public sealed class ScheduleAppointmentContext
 
     /// <summary>Active theme (colors + font sizes).</summary>
     public ScheduleViewTheme Theme { get; init; } = new ScheduleViewTheme();
+
+    /// <summary>True when this item is the schedule's <c>SelectedItem</c>; draws an emphasis ring.</summary>
+    public bool IsSelected { get; init; }
 }
 
 /// <summary>
@@ -421,6 +424,15 @@ public class ScheduleViewRenderer
                 new RectF(x + 8, y1 + titleBoxH + 2, rw - 10, rangeBoxH),
                 HorizontalAlignment.Left,
                 VerticalAlignment.Top);
+        }
+
+        if (ctx.IsSelected)
+        {
+            // Emphasis ring: a thicker stroked border, inset so it hugs the block edge.
+            var ring = new Color(bg.Red * 0.55f, bg.Green * 0.55f, bg.Blue * 0.55f);
+            canvas.StrokeColor = ring;
+            canvas.StrokeSize = 2.5f;
+            canvas.DrawRoundedRectangle(new RectF(x + 1, y1 + 1, rw - 2, rh - 2), 6);
         }
     }
 

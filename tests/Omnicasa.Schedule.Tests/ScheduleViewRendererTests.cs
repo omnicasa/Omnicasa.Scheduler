@@ -84,6 +84,73 @@ public class ScheduleViewRendererTests
     }
 
     [Fact]
+    public void DrawAppointment_Selected_DrawsEmphasisRing()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleAppointmentContext
+        {
+            Canvas = canvas,
+            Item = new TestScheduleItem { Title = "Picked", Start = Day.AddHours(9), End = Day.AddHours(10) },
+            Rect = new RectF(10, 20, 100, 80),
+            BlockColor = Colors.DodgerBlue,
+            Theme = new ScheduleViewTheme(),
+            IsSelected = true,
+        };
+
+        new ScheduleViewRenderer().DrawAppointment(ctx);
+
+        // The ring is a stroked (not filled) rounded rectangle on top of the normal block.
+        Assert.Contains("DrawRoundedRectangle", canvas.Ops);
+    }
+
+    [Fact]
+    public void DrawAppointment_Unselected_DrawsNoEmphasisRing()
+    {
+        var canvas = new RecordingCanvas();
+
+        new ScheduleViewRenderer().DrawAppointment(ApptCtx(canvas, new RectF(10, 20, 100, 80), "Plain"));
+
+        // Unselected look is identical to before: filled block, no stroked ring.
+        Assert.DoesNotContain("DrawRoundedRectangle", canvas.Ops);
+    }
+
+    [Fact]
+    public void BodyDrawable_SelectedItem_MarksMatchingBlockSelected()
+    {
+        var selected = new TestScheduleItem { Title = "Sel", Start = Day.AddHours(9), End = Day.AddHours(10) };
+        var other = new TestScheduleItem { Title = "Other", Start = Day.AddHours(11), End = Day.AddHours(12) };
+        var probe = new SelectionProbeRenderer();
+        var drawable = new ScheduleBodyDrawable
+        {
+            Renderer = probe,
+            Context = new ScheduleRenderContext
+            {
+                Theme = new ScheduleViewTheme(),
+                Scale = new TimeScale(60),
+                TimeRailWidth = 56,
+                SelectedItem = selected,
+                Columns = new[]
+                {
+                    new ScheduleViewColumn
+                    {
+                        DayStart = Day,
+                        Items = new[]
+                        {
+                            new LaidOutItem(selected, 0, 1),
+                            new LaidOutItem(other, 0, 1),
+                        },
+                    },
+                },
+            },
+        };
+
+        drawable.Draw(new RecordingCanvas(), new RectF(0, 0, 320, 60 * 24));
+
+        Assert.True(probe.SelectedByTitle["Sel"]);
+        Assert.False(probe.SelectedByTitle["Other"]);
+    }
+
+    [Fact]
     public void DrawAppointment_TallBlock_AlsoDrawsTimeRange()
     {
         var canvas = new RecordingCanvas();
@@ -463,5 +530,13 @@ public class ScheduleViewRendererTests
         public bool Called { get; private set; }
 
         public override void DrawHoldingItem(ScheduleHoldingContext ctx) => Called = true;
+    }
+
+    private sealed class SelectionProbeRenderer : ScheduleViewRenderer
+    {
+        public Dictionary<string, bool> SelectedByTitle { get; } = new Dictionary<string, bool>();
+
+        public override void DrawAppointment(ScheduleAppointmentContext ctx)
+            => SelectedByTitle[ctx.Item.Title ?? string.Empty] = ctx.IsSelected;
     }
 }

@@ -379,6 +379,24 @@ schedule.ItemActionInvoked += (_, e) =>
 icon: DeviceInfo.Platform == DevicePlatform.iOS ? "trash" : "ic_delete"
 ```
 
+## Selection (`SelectedItem`)
+
+Tapping an appointment sets the two-way bindable `SelectedItem` and raises `SelectionChanged`; the selected block is drawn with an emphasis ring (the unselected look is unchanged). Set `SelectedItem` from code (or a binding) to highlight a block programmatically:
+
+```csharp
+schedule.SelectionChanged += (_, e) =>
+{
+    // e.Item — the appointment just selected by a tap
+    statusLabel.Text = $"Selected: {e.Item.Title}";
+};
+
+// Or drive it from state (two-way):
+schedule.SelectedItem = myAppointment;   // highlights it
+schedule.SelectedItem = null;            // clears the highlight
+```
+
+Override `DrawAppointment` and branch on `ScheduleAppointmentContext.IsSelected` for a custom selected look.
+
 ## Reschedule by dragging (`HoldingSchedule`)
 
 Set `HoldingSchedule` to any `IScheduleItem` and it's drawn as a floating block: drag it (free vertically, snapped to the nearest column) and resize it via the corner handles. On release it raises `HoldingDropped` — the control **does not** mutate the item, so your handler decides whether to apply the change:

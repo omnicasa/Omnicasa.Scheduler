@@ -66,6 +66,9 @@ public sealed class ScheduleRenderContext
     /// <summary>Height of one all-day lane, in logical pixels.</summary>
     public float AllDayLaneHeight { get; set; } = 22f;
 
+    /// <summary>The currently selected appointment, drawn with an emphasis ring; null selects nothing.</summary>
+    public IScheduleItem? SelectedItem { get; set; }
+
     /// <summary>Optional held item drawn as a floating, draggable block.</summary>
     public IScheduleItem? HoldingItem { get; set; }
 
@@ -325,7 +328,21 @@ public sealed class ScheduleBodyDrawable : IDrawable
             Rect = rect,
             BlockColor = item.Color ?? columnAccent ?? theme.Accent,
             Theme = theme,
+            IsSelected = IsSelected(item),
         });
+    }
+
+    // Matches the drawn item to the selection by reference, or by Id when ids are populated.
+    private bool IsSelected(IScheduleItem item)
+    {
+        var selected = Context.SelectedItem;
+        if (selected is null)
+        {
+            return false;
+        }
+
+        return ReferenceEquals(selected, item)
+            || (!string.IsNullOrEmpty(selected.Id) && string.Equals(selected.Id, item.Id, StringComparison.Ordinal));
     }
 
     private void DrawTypingItem(ICanvas canvas, float contentX, float colW)

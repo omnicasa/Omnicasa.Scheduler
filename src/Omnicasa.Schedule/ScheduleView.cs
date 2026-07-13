@@ -892,7 +892,12 @@ public class ScheduleView : ContentView
         bool inhouseHeader = HeaderMode == ScheduleHeaderMode.Inhouse && (personsMode || days > 1);
         headerCanvas.HeightRequest = inhouseHeader ? headerHeight : 0;
         headerCanvas.IsVisible = inhouseHeader;
-        headerRow.Height = inhouseHeader ? GridLength.Auto : new GridLength(0);
+
+        // Explicit row height, not Auto: Rebuild() is debounced, so the header GraphicsView's
+        // HeightRequest is applied after a carousel cell's first measure. An Auto row would have
+        // already measured the (then zero-desired) canvas to 0 and never re-measure until a relayout,
+        // making the header vanish. The intended height is known here, so pin the row to it.
+        headerRow.Height = inhouseHeader ? new GridLength(headerHeight) : new GridLength(0);
         bodyCanvas.HeightRequest = context.Scale.TotalHeight;
 
         var items = new List<IScheduleItem>();
@@ -927,7 +932,10 @@ public class ScheduleView : ContentView
         float panelHeight = laneCount > 0 ? (laneCount * AllDayLaneHeight) + 6f : 0f;
         allDayCanvas.HeightRequest = inhouseAllDay ? panelHeight : 0;
         allDayCanvas.IsVisible = inhouseAllDay && panelHeight > 0;
-        allDayRow.Height = allDayCanvas.IsVisible ? GridLength.Auto : new GridLength(0);
+
+        // Explicit height for the same reason as headerRow above: an Auto row over a GraphicsView
+        // collapses to 0 when the debounced Rebuild applies HeightRequest after the first measure.
+        allDayRow.Height = allDayCanvas.IsVisible ? new GridLength(panelHeight) : new GridLength(0);
 
         headerCanvas.Invalidate();
         allDayCanvas.Invalidate();

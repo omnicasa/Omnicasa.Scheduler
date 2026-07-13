@@ -227,6 +227,16 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnHoldingScheduleChanged(o as IScheduleItem, n as IScheduleItem));
 
+    /// <summary>Bindable property for <see cref="SelectedItem"/>.</summary>
+    public static readonly BindableProperty SelectedItemProperty =
+        BindableProperty.Create(
+            nameof(SelectedItem),
+            typeof(IScheduleItem),
+            typeof(ScheduleView),
+            null,
+            defaultBindingMode: BindingMode.TwoWay,
+            propertyChanged: (b, _, n) => ((ScheduleView)b).OnSelectedItemChanged(n as IScheduleItem));
+
     private readonly ScheduleViewTheme fallbackTheme = new ScheduleViewTheme();
 
     private readonly ScheduleRenderContext context = new ScheduleRenderContext();
@@ -436,6 +446,9 @@ public class ScheduleView : ContentView
     /// <summary>Fired when the user taps an appointment block.</summary>
     public event EventHandler<ScheduleItemTappedEventArgs>? ItemTapped;
 
+    /// <summary>Fired when <see cref="SelectedItem"/> changes because the user tapped an appointment.</summary>
+    public event EventHandler<ScheduleItemTappedEventArgs>? SelectionChanged;
+
     /// <summary>Fired when the user long-presses an empty area. Payload is the day + time at the press.</summary>
     public event EventHandler<ScheduleTappedEventArgs>? LongTapped;
 
@@ -553,6 +566,17 @@ public class ScheduleView : ContentView
     {
         get => (IScheduleItem?)GetValue(HoldingScheduleProperty);
         set => SetValue(HoldingScheduleProperty, value);
+    }
+
+    /// <summary>
+    /// The currently selected appointment, or null. Tapping an appointment sets it (and raises
+    /// <see cref="SelectionChanged"/>); the selected block is drawn with an emphasis ring. Two-way,
+    /// so setting it from code (or a binding) also updates the highlight.
+    /// </summary>
+    public IScheduleItem? SelectedItem
+    {
+        get => (IScheduleItem?)GetValue(SelectedItemProperty);
+        set => SetValue(SelectedItemProperty, value);
     }
 
     /// <summary>
@@ -763,6 +787,12 @@ public class ScheduleView : ContentView
     }
 
     private void OnHoldingItemPropertyChanged(object? sender, PropertyChangedEventArgs e) => bodyCanvas.Invalidate();
+
+    private void OnSelectedItemChanged(IScheduleItem? newValue)
+    {
+        context.SelectedItem = newValue;
+        bodyCanvas.Invalidate();
+    }
 
     private void OnRendererChanged()
     {
@@ -1475,6 +1505,8 @@ public class ScheduleView : ContentView
                 }
                 else
                 {
+                    SelectedItem = item;
+                    SelectionChanged?.Invoke(this, args);
                     ItemTapped?.Invoke(this, args);
                 }
 

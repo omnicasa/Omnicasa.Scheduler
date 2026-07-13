@@ -63,6 +63,8 @@ public class MonthCalendarView : ContentView
             null,
             propertyChanged: (b, _, _) => ((MonthCalendarView)b).ApplyRenderer());
 
+    private const int BuildChunkSize = 4;
+
     private readonly ScheduleTheme fallbackTheme = new ScheduleTheme();
 
     private readonly ScrollView scroll;
@@ -76,6 +78,10 @@ public class MonthCalendarView : ContentView
     private CancellationTokenSource? loadCts;
 
     private bool initialScrollDone;
+
+    private bool rebuildQueued;
+
+    private int buildEpoch;
 
     /// <summary>Initializes a new instance of the <see cref="MonthCalendarView"/> class.</summary>
     public MonthCalendarView()
@@ -157,20 +163,82 @@ public class MonthCalendarView : ContentView
 
     private static int Key(int year, int month) => (year * 12) + (month - 1);
 
+    // Coalesced: MinYear/MaxYear/Theme and the constructor all call Rebuild() during init; without
+    // this each one re-runs the whole build (a wide range is dozens of month canvases on the UI
+    // thread). Defer to the next tick so they collapse into a single build with the final range.
     private void Rebuild()
     {
+        if (rebuildQueued)
+        {
+            return;
+        }
+
+        rebuildQueued = true;
+        var dispatcher = Dispatcher ?? Application.Current?.Dispatcher;
+        if (dispatcher is null)
+        {
+            rebuildQueued = false;
+            RebuildNow();
+            return;
+        }
+
+        dispatcher.Dispatch(() =>
+        {
+            rebuildQueued = false;
+            RebuildNow();
+        });
+    }
+
+    private void RebuildNow()
+    {
+        var epoch = ++buildEpoch;   // supersede any in-flight incremental build
         stack.Clear();
         monthBlocks.Clear();
+        initialScrollDone = false;
+
+        var order = new List<(int Year, int Month)>();
         for (int y = MinYear; y <= MaxYear; y++)
         {
             for (int m = 1; m <= 12; m++)
             {
-                stack.Add(BuildMonthBlock(y, m));
+                order.Add((y, m));
             }
         }
 
-        ApplyOneMonthPerScreen();
+        BuildChunk(order, 0, epoch);
         _ = RefreshCountsAsync();
+    }
+
+    // Build the month blocks a few at a time across dispatcher frames so a wide year range never
+    // blocks the UI thread in one synchronous pass (months are added in order; the initial scroll
+    // fires once the target month exists — see ApplyOneMonthPerScreen).
+    private void BuildChunk(List<(int Year, int Month)> order, int start, int epoch)
+    {
+        if (epoch != buildEpoch)
+        {
+            return;   // a newer Rebuild superseded this pass
+        }
+
+        var end = Math.Min(start + BuildChunkSize, order.Count);
+        for (int i = start; i < end; i++)
+        {
+            stack.Add(BuildMonthBlock(order[i].Year, order[i].Month));
+        }
+
+        ApplyOneMonthPerScreen();
+
+        if (end < order.Count)
+        {
+            var dispatcher = Dispatcher ?? Application.Current?.Dispatcher;
+            if (dispatcher is null)
+            {
+                BuildChunk(order, end, epoch);
+            }
+            else
+            {
+                dispatcher.Dispatch(() => BuildChunk(order, end, epoch));
+            }
+        }
     }
 
     private View BuildMonthBlock(int year, int month)
@@ -229,7 +297,9 @@ public class MonthCalendarView : ContentView
             block.HeightRequest = Height;
         }
 
-        if (!initialScrollDone)
+        // Only scroll once the target month has actually been built (the incremental build may not
+        // have reached it yet), else the scroll is a no-op and we'd never retry.
+        if (!initialScrollDone && monthBlocks.ContainsKey(Key(InitialDate.Year, InitialDate.Month)))
         {
             initialScrollDone = true;
 

@@ -325,7 +325,7 @@ public class ScheduleViewRenderer
     /// </summary>
     public virtual void DrawTodayMarker(ICanvas canvas, float contentX, float colW, ScheduleRenderContext ctx)
     {
-        if (ctx.Now is not { } now)
+        if (!ctx.ShowNowIndicator || ctx.Now is not { } now)
         {
             return;
         }

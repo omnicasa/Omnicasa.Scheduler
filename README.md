@@ -137,6 +137,7 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `HeaderMode` | `Inhouse` | Where the day header (and all-day panel) renders: `Inhouse` (pinned inside the control), `Linked` (suppressed — an external [`ScheduleHeaderView`](#scheduleheaderview) draws them), `None` (no header; all-day panel stays). |
 | `TopContentInset` | `0` | Blank space above midnight inside the scrollable body. Use with `Linked` + an overlaid header so hour 0 starts below the glass bar while content scrolls under it, or a few points so the first hour label ("00:00") renders fully. Paint into it via `Renderer.DrawBodyHeader`. |
 | `BottomContentInset` | `0` | Blank space below the 24:00 line inside the scrollable body, so the last hour label ("24:00") renders fully. Paint into it via `Renderer.DrawBodyFooter`. |
+| `ShowCurrentTimeIndicator` | `true` | Paints the live "now" line + time badge on today's column. While the view is attached it ticks every minute so the line tracks the wall clock without a rebuild. Set `false` to hide it. |
 | `Theme` | built-in | `ScheduleViewTheme` (colors **and** font sizes). |
 | `Renderer` | built-in | `ScheduleViewRenderer` — see [Custom rendering](#custom-rendering). |
 | `ItemActionsProvider` | `null` | `Func<IScheduleItem, IReadOnlyList<ScheduleMenuAction>>`; return actions (label + optional icon) to show a native long-press menu (iOS context menu / Android `PopupMenu`). |
@@ -145,7 +146,14 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `ItemActionInvoked` | — | Fires with the chosen action label from the long-press menu. |
 | `HoldingDropped` | — | Fires when the held block is released; payload is `Item`, snapped `Start`/`End`, `PersonId`. |
 
-`ScrollToTimeAsync(timeOfDay, animated)` programmatically scrolls a time to the top.
+`ScrollToTimeAsync(timeOfDay, animated)` programmatically scrolls a time to the top;
+`ScrollToNowAsync(animated)` is a convenience that scrolls to the current time.
+
+```csharp
+var schedule = new ScheduleView { ViewMode = 1, ShowCurrentTimeIndicator = true };
+// The now-line ticks every minute on its own; jump the viewport to it on demand:
+await schedule.ScrollToNowAsync(animated: true);
+```
 
 ### `ScheduleHeaderView`
 

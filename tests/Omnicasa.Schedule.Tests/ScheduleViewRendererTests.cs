@@ -253,6 +253,61 @@ public class ScheduleViewRendererTests
     }
 
     [Fact]
+    public void DrawTodayMarker_ShowNowIndicatorTrue_DrawsLineAndBadge()
+    {
+        var now = Day.AddHours(14).AddMinutes(30);
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme(),
+            Scale = new TimeScale(60),
+            Now = now,
+            ShowNowIndicator = true,
+            TimeRailWidth = 56,
+            Columns = new[] { new ScheduleViewColumn { DayStart = Day } },
+        };
+
+        new ScheduleViewRenderer().DrawTodayMarker(canvas, 56, 100, ctx);
+
+        // The line lands at YForTime(now.TimeOfDay); the badge capsule is drawn there too.
+        Assert.Equal(1, canvas.DrawLineCount);
+        Assert.Single(canvas.FilledRoundedRectangles);
+        Assert.Contains(canvas.Strings, s => s.Contains("2") && s.Contains("30"));
+    }
+
+    [Fact]
+    public void DrawTodayMarker_ShowNowIndicatorFalse_DrawsNothing()
+    {
+        var canvas = new RecordingCanvas();
+        var ctx = new ScheduleRenderContext
+        {
+            Theme = new ScheduleViewTheme(),
+            Scale = new TimeScale(60),
+            Now = Day.AddHours(10),
+            ShowNowIndicator = false,
+            TimeRailWidth = 56,
+            Columns = new[] { new ScheduleViewColumn { DayStart = Day } },
+        };
+
+        new ScheduleViewRenderer().DrawTodayMarker(canvas, 56, 100, ctx);
+
+        Assert.Empty(canvas.Ops);
+    }
+
+    [Fact]
+    public void ScrollToNow_TargetOffset_MatchesYForTimeMinusTopPadding()
+    {
+        // The offset ScrollToNowAsync computes: YForTime(now) - TopPadding.
+        var scale = new TimeScale(80, topPadding: 24);
+        var now = new TimeSpan(9, 15, 0);
+
+        double offset = scale.YForTime(now) - scale.TopPadding;
+
+        // 9.25h * 80px = 740; the top padding is subtracted back out so the time sits at the edge.
+        Assert.Equal(9.25 * 80, offset, 3);
+    }
+
+    [Fact]
     public void DrawTodayMarker_TodayNotVisible_DrawsNothing()
     {
         var canvas = new RecordingCanvas();

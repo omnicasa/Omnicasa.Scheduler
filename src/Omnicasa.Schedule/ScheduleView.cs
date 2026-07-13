@@ -180,6 +180,15 @@ public class ScheduleView : ContentView
             null,
             propertyChanged: (b, o, n) => ((ScheduleView)b).OnItemsSourceChanged(o as IEnumerable, n as IEnumerable));
 
+    /// <summary>Bindable property for <see cref="BlockoutsSource"/>.</summary>
+    public static readonly BindableProperty BlockoutsSourceProperty =
+        BindableProperty.Create(
+            nameof(BlockoutsSource),
+            typeof(IEnumerable),
+            typeof(ScheduleView),
+            null,
+            propertyChanged: (b, o, n) => ((ScheduleView)b).OnBlockoutsSourceChanged(o as IEnumerable, n as IEnumerable));
+
     /// <summary>Bindable property for <see cref="TypingItem"/>.</summary>
     public static readonly BindableProperty TypingItemProperty =
         BindableProperty.Create(
@@ -533,6 +542,17 @@ public class ScheduleView : ContentView
     }
 
     /// <summary>
+    /// Optional "unavailable" bands (out-of-office, holidays, closed hours) painted as translucent
+    /// backgrounds behind the appointments. Items must implement <see cref="IScheduleBlockout"/>;
+    /// a null <see cref="IScheduleBlockout.PersonId"/> spans every column of the day.
+    /// </summary>
+    public IEnumerable? BlockoutsSource
+    {
+        get => (IEnumerable?)GetValue(BlockoutsSourceProperty);
+        set => SetValue(BlockoutsSourceProperty, value);
+    }
+
+    /// <summary>
     /// Optional draft item shown as a highlighted shadowed overlay. Touch on its body moves it,
     /// touch on its top/bottom edge resizes it. <see cref="ITypingScheduleItem.Start"/>,
     /// <see cref="ITypingScheduleItem.End"/>, and <see cref="ITypingScheduleItem.PersonId"/> are
@@ -668,6 +688,23 @@ public class ScheduleView : ContentView
     }
 
     private void OnItemsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Rebuild();
+
+    private void OnBlockoutsSourceChanged(IEnumerable? oldValue, IEnumerable? newValue)
+    {
+        if (oldValue is INotifyCollectionChanged oldNotify)
+        {
+            oldNotify.CollectionChanged -= OnBlockoutsCollectionChanged;
+        }
+
+        if (newValue is INotifyCollectionChanged newNotify)
+        {
+            newNotify.CollectionChanged += OnBlockoutsCollectionChanged;
+        }
+
+        Rebuild();
+    }
+
+    private void OnBlockoutsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Rebuild();
 
     private void OnTypingItemChanged(ITypingScheduleItem? oldValue, ITypingScheduleItem? newValue)
     {
@@ -907,6 +944,19 @@ public class ScheduleView : ContentView
             }
         }
 
+        var blockouts = new List<IScheduleBlockout>();
+        if (BlockoutsSource is not null)
+        {
+            foreach (var raw in BlockoutsSource)
+            {
+                if (raw is IScheduleBlockout b)
+                {
+                    blockouts.Add(b);
+                }
+            }
+        }
+
+        context.Blockouts = blockouts;
         context.Columns = ScheduleColumnBuilder.Build(StartDay, EndDay, ViewMode, Persons, items);
         context.Now = DateTime.Now;
 

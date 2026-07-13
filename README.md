@@ -398,6 +398,22 @@ schedule.HoldingDropped += (_, e) =>
 
 If you don't apply it, the block springs back to its original position (the gesture is reported, not committed).
 
+## Blockout / unavailable regions (`BlockoutsSource`)
+
+Set `BlockoutsSource` to a collection of `IScheduleBlockout` (or the built-in `ScheduleBlockout`) and each range is painted as a **translucent background band behind the appointments** — out-of-office, holidays, closed hours, lunch. A null `PersonId` spans every column of the day; a set one is scoped to that person's column. Like `ItemsSource`, an `INotifyCollectionChanged` source re-renders on change.
+
+```csharp
+schedule.BlockoutsSource = new List<IScheduleBlockout>
+{
+    new ScheduleBlockout { Start = day, End = day.AddHours(9), Title = "Closed" },            // before opening
+    new ScheduleBlockout { Start = day.AddHours(12), End = day.AddHours(13), Title = "Lunch",
+                           Color = Color.FromArgb("#FF9500") },
+    new ScheduleBlockout { Start = day.AddHours(14), End = day.AddHours(16), PersonId = "p2" }, // one person only
+};
+```
+
+Bands paint after the hour grid but before the appointments, so events still read clearly on top. Restyle them (e.g. a diagonal hatch) by overriding `DrawBlockout(ScheduleBlockoutContext)` on your `ScheduleViewRenderer`; the context carries the `Blockout`, its `Rect`, the resolved `Color`, and the `Theme`.
+
 ## Sample app
 
 The repo contains a runnable sample under `samples/Omnicasa.Schedule.Sample` that wires the controls to an in-memory source of randomized appointments and drills down year → month → day with an animated zoom on tap.

@@ -161,6 +161,11 @@ public partial class MainPage : ContentPage
         await Shell.Current.GoToAsync(nameof(GlassSchedulePage));
     }
 
+    private async void OnOpenBlockout(object? sender, EventArgs e)
+    {
+        await Shell.Current.GoToAsync(nameof(BlockoutSchedulePage));
+    }
+
     private async void OnOpenAgenda(object? sender, EventArgs e)
     {
         await Shell.Current.GoToAsync(nameof(AgendaPage));

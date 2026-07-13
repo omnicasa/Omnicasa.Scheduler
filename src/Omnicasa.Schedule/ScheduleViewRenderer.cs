@@ -77,6 +77,27 @@ public sealed class ScheduleHoldingContext
     public bool IsDragging { get; init; }
 }
 
+/// <summary>
+/// Paints one "unavailable" / blockout band behind the appointments of <see cref="ScheduleView"/>.
+/// </summary>
+public sealed class ScheduleBlockoutContext
+{
+    /// <summary>Target canvas.</summary>
+    public ICanvas Canvas { get; init; } = null!;
+
+    /// <summary>The blockout band being drawn.</summary>
+    public IScheduleBlockout Blockout { get; init; } = null!;
+
+    /// <summary>Rectangle the band occupies (clipped to the column's day and time range).</summary>
+    public RectF Rect { get; init; }
+
+    /// <summary>Resolved band color (blockout color, else the theme's muted color).</summary>
+    public Color Color { get; init; } = Colors.Gray;
+
+    /// <summary>Active theme (colors + font sizes).</summary>
+    public ScheduleViewTheme Theme { get; init; } = new ScheduleViewTheme();
+}
+
 /// <summary>Paints one all-day / cross-date bar in the panel above <see cref="ScheduleView"/>'s grid.</summary>
 public sealed class ScheduleAllDayContext
 {
@@ -419,6 +440,35 @@ public class ScheduleViewRenderer
             canvas.DrawString(
                 range,
                 new RectF(x + 8, y1 + titleBoxH + 2, rw - 10, rangeBoxH),
+                HorizontalAlignment.Left,
+                VerticalAlignment.Top);
+        }
+    }
+
+    /// <summary>
+    /// Draws one unavailable / blockout band behind the appointments — a translucent fill of
+    /// <see cref="ScheduleBlockoutContext.Color"/> with an optional caption. Override for a custom
+    /// look (e.g. a diagonal hatch).
+    /// </summary>
+    public virtual void DrawBlockout(ScheduleBlockoutContext ctx)
+    {
+        var canvas = ctx.Canvas;
+        var rect = ctx.Rect;
+        var c = ctx.Color;
+
+        canvas.FillColor = new Color(c.Red, c.Green, c.Blue, 0.15f);
+        canvas.FillRectangle(rect);
+
+        var title = ctx.Blockout.Title;
+        if (!string.IsNullOrEmpty(title) && rect.Height > 14)
+        {
+            float rangeSize = (float)ctx.Theme.BlockRangeFontSize;
+            canvas.FontColor = ctx.Theme.Muted;
+            canvas.FontSize = rangeSize;
+            canvas.Font = Microsoft.Maui.Graphics.Font.Default;
+            canvas.DrawString(
+                title,
+                new RectF(rect.X + 6, rect.Y + 2, rect.Width - 10, MathF.Min(rangeSize + 4f, rect.Height - 4)),
                 HorizontalAlignment.Left,
                 VerticalAlignment.Top);
         }

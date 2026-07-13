@@ -41,6 +41,10 @@ public class ScheduleViewTheme : BindableObject
     public static readonly BindableProperty NowIndicatorProperty =
         BindableProperty.Create(nameof(NowIndicator), typeof(Color), typeof(ScheduleViewTheme), Color.FromArgb("#8B0000"));
 
+    /// <summary>Bindable property for <see cref="OffHoursShade"/>.</summary>
+    public static readonly BindableProperty OffHoursShadeProperty =
+        BindableProperty.Create(nameof(OffHoursShade), typeof(Color), typeof(ScheduleViewTheme), Color.FromRgba(0, 0, 0, 0.05));
+
     /// <summary>Bindable property for <see cref="HourLabelFontSize"/>.</summary>
     public static readonly BindableProperty HourLabelFontSizeProperty =
         BindableProperty.Create(nameof(HourLabelFontSize), typeof(double), typeof(ScheduleViewTheme), 11.0);
@@ -127,6 +131,17 @@ public class ScheduleViewTheme : BindableObject
     {
         get => (Color)GetValue(NowIndicatorProperty);
         set => SetValue(NowIndicatorProperty, value);
+    }
+
+    /// <summary>
+    /// Fill painted over the hours outside the working day (before <c>WorkDayStart</c> and after
+    /// <c>WorkDayEnd</c>) when <c>ScheduleView.ShowOffHoursShading</c> is on. A subtle translucent
+    /// grey by default so it reads over the <see cref="Background"/> without hiding grid or events.
+    /// </summary>
+    public Color OffHoursShade
+    {
+        get => (Color)GetValue(OffHoursShadeProperty);
+        set => SetValue(OffHoursShadeProperty, value);
     }
 
     /// <summary>Font size of the left-rail hour labels (e.g. "9 AM").</summary>

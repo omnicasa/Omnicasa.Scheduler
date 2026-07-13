@@ -48,6 +48,15 @@ public sealed class ScheduleRenderContext
     /// <summary>Optional "now" timestamp used to draw the today marker.</summary>
     public DateTime? Now { get; set; }
 
+    /// <summary>Start of the working day; hours before it are shaded when <see cref="ShowOffHoursShading"/> is on.</summary>
+    public TimeSpan WorkDayStart { get; set; } = TimeSpan.FromHours(8);
+
+    /// <summary>End of the working day; hours after it are shaded when <see cref="ShowOffHoursShading"/> is on.</summary>
+    public TimeSpan WorkDayEnd { get; set; } = TimeSpan.FromHours(18);
+
+    /// <summary>When true, the grid shades the off-hours bands outside the working day.</summary>
+    public bool ShowOffHoursShading { get; set; }
+
     /// <summary>Optional draft / typing item rendered as a shadowed overlay over the body.</summary>
     public ITypingScheduleItem? TypingItem { get; set; }
 
@@ -249,6 +258,8 @@ public sealed class ScheduleBodyDrawable : IDrawable
 
         float colW = contentW / n;
 
+        // Shade off-hours under the grid lines so lines and events still read on top.
+        Renderer.DrawOffHours(canvas, contentX, colW, ctx);
         Renderer.DrawHourGrid(canvas, w, contentX, ctx);
 
         for (int i = 0; i < n; i++)

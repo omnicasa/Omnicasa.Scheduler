@@ -32,7 +32,7 @@
                       Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != ''" />
     <!-- GPU canvas backing InfiniteScheduleView; platform builds only (net9.0 headless excludes the control).
          3.x required: 2.88.x has no iOS SKGLViewHandler, so SKGLView cannot render on iOS there. -->
-    <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.116.1"
+    <PackageReference Include="SkiaSharp.Views.Maui.Controls" Version="3.119.1"
                       Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != ''" />
     <PackageReference Include="Omnicasa.Analyzers" Version="2024.9.24.15">
       <PrivateAssets>all</PrivateAssets>

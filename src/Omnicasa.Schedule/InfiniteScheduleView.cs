@@ -373,6 +373,7 @@ public sealed class InfiniteScheduleView : ContentView
     private bool pressValid;
 
     private IDispatcherTimer? longPressTimer;
+    private IDispatcherTimer? nowTimer;
 
     // Block-drag state (TypingItem move/resize, HoldingSchedule move/resize).
     private InteractionKind interaction;
@@ -412,6 +413,10 @@ public sealed class InfiniteScheduleView : ContentView
 
         Content = canvas;
         SizeChanged += (_, _) => OnLayoutChanged();
+
+        // Advance the current-time marker while the view is on screen (it moves ~1px/min).
+        Loaded += (_, _) => StartNowTimer();
+        Unloaded += (_, _) => StopNowTimer();
 
 #if IOS
         // Native UIContextMenuInteraction for the appointment quick-action menu (needs the platform view).
@@ -915,6 +920,7 @@ public sealed class InfiniteScheduleView : ContentView
         overlayNeedsFrame = false;
         DrawOverlays(skCanvas, railWidth, headerHeight, logicalW, logicalH);
         DrawHourRail(skCanvas, timeScale, railWidth, headerHeight, logicalH);
+        DrawNowMarker(skCanvas, timeScale, railWidth, headerHeight, logicalW, logicalH, bodyWidth);
         DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
 
         // The pop-in runs on the render loop; drop back to on-demand painting once it (and any
@@ -1077,6 +1083,83 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         skCanvas.Restore();
+    }
+
+    // Current-time marker: a NowIndicator-coloured line across the visible columns at the current
+    // time, plus a time badge in the rail — only when today is one of the visible days. Drawn live
+    // (not into the cached day strip) so it advances with the minute timer.
+    private void DrawNowMarker(SKCanvas skCanvas, TimeScale timeScale, float railWidth, float headerHeight, float logicalW, float logicalH, float bodyWidth)
+    {
+        var now = DateTime.Now;
+        int todayIndex = (now.Date - AnchorDay.Date).Days;
+        int firstVisible = InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth);
+        int visibleCount = InfiniteScheduleGeometry.VisibleDayCount(bodyWidth, dayWidth);
+        if (todayIndex < firstVisible || todayIndex >= firstVisible + visibleCount)
+        {
+            return;
+        }
+
+        float y = headerHeight - (float)scrollY + timeScale.YForTime(now.TimeOfDay);
+        if (y < headerHeight - 1 || y > logicalH + 1)
+        {
+            return;
+        }
+
+        var color = ToSk(ActiveTheme.NowIndicator);
+
+        // Line across the visible body width (matches the classic full-width marker).
+        skCanvas.Save();
+        skCanvas.ClipRect(new SKRect(railWidth, headerHeight, logicalW, logicalH));
+        using (var line = new SKPaint { Color = color, StrokeWidth = 1.5f, IsAntialias = true })
+        {
+            skCanvas.DrawLine(railWidth, y, logicalW, y, line);
+        }
+
+        skCanvas.Restore();
+
+        // Time badge in the rail.
+        float fontSize = (float)ActiveTheme.HourLabelFontSize;
+        float badgeH = fontSize + 8f;
+        float badgeW = railWidth - 6f;
+        float badgeX = 2f;
+        float badgeY = y - (badgeH / 2f);
+
+        skCanvas.Save();
+        skCanvas.ClipRect(new SKRect(0, headerHeight, railWidth, logicalH));
+        using (var badge = new SKPaint { Color = color, IsAntialias = true, Style = SKPaintStyle.Fill })
+        using (var rr = new SKRoundRect(new SKRect(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH), badgeH / 2f))
+        {
+            skCanvas.DrawRoundRect(rr, badge);
+        }
+
+        using (var txt = new SKPaint { Color = SKColors.White, IsAntialias = true })
+        using (var font = new SKFont { Size = fontSize })
+        {
+            var metrics = font.Metrics;
+            float baseline = (badgeY + (badgeH / 2f)) - ((metrics.Ascent + metrics.Descent) / 2f);
+            skCanvas.DrawText(now.ToString("HH:mm", CultureInfo.CurrentCulture), badgeX + (badgeW / 2f), baseline, SKTextAlign.Center, font, txt);
+        }
+
+        skCanvas.Restore();
+    }
+
+    private void StartNowTimer()
+    {
+        if (nowTimer is not null)
+        {
+            return;
+        }
+
+        nowTimer = Dispatcher.CreateTimer();
+        nowTimer.Interval = TimeSpan.FromSeconds(30);
+        nowTimer.Tick += (_, _) => canvas.InvalidateSurface();
+        nowTimer.Start();
+    }
+
+    private void StopNowTimer()
+    {
+        nowTimer?.Stop();
+        nowTimer = null;
     }
 
     // Whole header band (blank rail corner + day/person row), delegated to the active renderer so

@@ -147,6 +147,47 @@ Day.AppointmentSource  = Year.AppointmentSource;
 
 `ScrollToTimeAsync(timeOfDay, animated)` programmatically scrolls a time to the top.
 
+### `InfiniteScheduleView`
+
+A single-canvas, GPU-rendered schedule whose **day axis scrolls infinitely** — one continuous
+control instead of a `CarouselView` of per-day `ScheduleView` pages. It draws every visible day onto
+one **SkiaSharp `SKGLView`** and owns a virtual horizontal offset, so there's no page count and no
+native scroll rect to run out of. Rendering uses snapshot-and-translate (a buffer of day columns
+recorded once into an `SKPicture`, re-recorded only near the buffer edge), keeping per-frame cost flat.
+
+> Requires **SkiaSharp.Views.Maui 3.x** (2.88 has no iOS `SKGLView` handler). Register it with
+> `.UseSkiaSharp()` in `MauiProgram`. iOS-simulator GL can be unreliable — test on a device.
+
+It mirrors much of the `ScheduleView` API (same member names) so callers can largely swap the type;
+`StartDay`/`EndDay` are replaced by `AnchorDay` + optional `MinDay`/`MaxDay`.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `ItemsSource` | `null` | `IEnumerable` of `IScheduleItem`. Call `RefreshItems()` after mutating an item's time in place. |
+| `AnchorDay` | today | The day at horizontal offset 0; scrolling is measured relative to it. |
+| `MinDay` / `MaxDay` | `null` | Optional bounds; `null` = unbounded (truly infinite) in that direction. |
+| `ViewMode` | `1` | Day columns visible at once (1–7); sets the day-column width. |
+| `HourHeight` | `60` | Pixels per hour; clamped `[24, 300]`, **two-finger pinch to zoom**. |
+| `VerticalOffset` | `0` | Two-way vertical (time) scroll offset. |
+| `Persons` | `null` | `IList<IPerson>`; each day splits into per-person sub-columns (header shows initials + accent). |
+| `TypingItem` | `null` | Draft block — drag to move, corners to resize; pops in on appear. |
+| `HoldingSchedule` | `null` | "Held" block — drag to reposition; shows a leash back to its origin; reports `HoldingDropped`. |
+| `TopContentInset` / `BottomContentInset` | `0` | Blank space above midnight / below 24:00 inside the body. |
+| `PagingEnabled` | `true` | Horizontal gestures: a slow drag snaps to the nearest **day**; a flick pages exactly **one screenful** (`ViewMode` days) carousel-style. |
+| `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.8` / `0.5` / `12000` | Momentum tuning for vertical fling. |
+| `CurrentDay` | today | **Two-way**: the leftmost visible day. Updates as you scroll/page; setting it scrolls there. |
+| `Theme` | built-in | `ScheduleViewTheme` — colors, fonts, and `TimeRailWidth` / `HeaderHeight`. |
+| `SkiaRenderer` | built-in | Skia-native painter — see [Custom rendering](#custom-rendering). |
+| `Renderer` | `null` | Accepted for `ScheduleView` parity but **ignored** (the GPU path uses `SkiaRenderer`). |
+| `ItemActionsProvider` | `null` | Return actions to show the native long-press menu (iOS `UIMenu` / Android `PopupMenu`). |
+| `Tapped` / `LongTapped` / `ItemTapped` / `ItemLongTapped` | — | Same payloads as `ScheduleView`. |
+| `ItemActionInvoked` / `HoldingDropped` | — | Menu action chosen / held block dropped. |
+| `VisibleRangeChanged` | — | Fires with `FirstDay` / `LastDay` whenever the visible day window changes (drive a page title). |
+
+`ScrollToTimeAsync(timeOfDay, animated)` scrolls a time to the top.
+
+_Not yet wired: all-day bars, and `HeaderMode` `Linked`/`None`._
+
 ### `ScheduleHeaderView`
 
 A standalone day/person header bar for pinning **outside** the schedule — e.g. a translucent, iOS 26

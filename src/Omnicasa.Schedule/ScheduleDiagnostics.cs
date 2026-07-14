@@ -19,6 +19,7 @@ public static class ScheduleDiagnostics
         if (Enabled)
         {
             Console.WriteLine($"[Schedule] {message}");
+            System.Diagnostics.Debug.WriteLine(message);
         }
     }
 }

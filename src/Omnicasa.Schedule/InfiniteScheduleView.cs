@@ -915,8 +915,7 @@ public sealed class InfiniteScheduleView : ContentView
         overlayNeedsFrame = false;
         DrawOverlays(skCanvas, railWidth, headerHeight, logicalW, logicalH);
         DrawHourRail(skCanvas, timeScale, railWidth, headerHeight, logicalH);
-        DrawDayHeader(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
-        DrawCorner(skCanvas, railWidth, headerHeight);
+        DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
 
         // The pop-in runs on the render loop; drop back to on-demand painting once it (and any
         // scroll/fling/pinch) is done, so the block always settles at full size.
@@ -1080,82 +1079,48 @@ public sealed class InfiniteScheduleView : ContentView
         skCanvas.Restore();
     }
 
-    private void DrawDayHeader(SKCanvas skCanvas, float railWidth, float headerHeight, float logicalW, float bodyWidth)
+    // Whole header band (blank rail corner + day/person row), delegated to the active renderer so
+    // callers can restyle it. Builds the visible-day layout once and hands it over; the default
+    // reproduces the built-in look.
+    private void DrawHeaderBand(SKCanvas skCanvas, float railWidth, float headerHeight, float logicalW, float bodyWidth)
     {
-        var theme = ActiveTheme;
-        skCanvas.Save();
-        skCanvas.ClipRect(new SKRect(railWidth, 0, logicalW, headerHeight));
-
-        using var bg = new SKPaint { Color = ToSk(theme.HeaderBackground ?? theme.Background), Style = SKPaintStyle.Fill };
-        skCanvas.DrawRect(new SKRect(railWidth, 0, logicalW, headerHeight), bg);
-
-        float primarySize = (float)theme.HeaderPrimaryFontSize;
-        float secondarySize = (float)theme.HeaderSecondaryFontSize;
-        using var primaryFont = new SKFont { Size = primarySize };
-        using var secondaryFont = new SKFont { Size = secondarySize };
-        using var textPaint = new SKPaint { IsAntialias = true };
-        using var accent = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
-        using var sep = new SKPaint { Color = ToSk(theme.GridLine), StrokeWidth = 0.5f, IsAntialias = false };
-
-        var persons = Persons is { Count: > 0 } p ? p : null;
+        var persons = Persons is { Count: > 0 } p
+            ? (p as IReadOnlyList<IPerson> ?? new List<IPerson>(p))
+            : null;
         int personCount = persons?.Count ?? 1;
-        float columnWidth = dayWidth / personCount;
 
         int firstVisible = InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth);
         int visibleCount = InfiniteScheduleGeometry.VisibleDayCount(bodyWidth, dayWidth);
         var todayDate = DateTime.Today;
 
+        var days = new List<InfiniteScheduleHeaderDay>(Math.Max(0, visibleCount));
         for (int i = firstVisible; i < firstVisible + visibleCount; i++)
         {
             var day = AnchorDay.Date.AddDays(i);
-            bool isToday = day == todayDate;
-            float dayLeft = railWidth - (float)horizontalOffset + (i * dayWidth);
-            float dayCx = dayLeft + (dayWidth / 2f);
-            string dayShort = day.ToString("ddd", CultureInfo.CurrentCulture).ToUpperInvariant();
-            string dayNum = day.Day.ToString(CultureInfo.CurrentCulture);
-
-            if (persons is null)
+            days.Add(new InfiniteScheduleHeaderDay
             {
-                // Single day per column: day-of-week over the day number.
-                textPaint.Color = isToday ? ToSk(theme.Today) : ToSk(theme.Foreground);
-                skCanvas.DrawText(dayShort, dayCx, primarySize + 3, SKTextAlign.Center, primaryFont, textPaint);
-                skCanvas.DrawText(dayNum, dayCx, headerHeight - 7, SKTextAlign.Center, secondaryFont, textPaint);
-                continue;
-            }
-
-            // Day label spans the person sub-columns; each sub-column shows the person's initials + accent.
-            textPaint.Color = isToday ? ToSk(theme.Today) : ToSk(theme.Muted);
-            skCanvas.DrawText($"{dayShort} {dayNum}", dayCx, primarySize + 3, SKTextAlign.Center, primaryFont, textPaint);
-
-            for (int pIdx = 0; pIdx < personCount; pIdx++)
-            {
-                var person = persons[pIdx];
-                float cLeft = dayLeft + (pIdx * columnWidth);
-                float cCx = cLeft + (columnWidth / 2f);
-
-                if (pIdx > 0)
-                {
-                    skCanvas.DrawLine(cLeft, 0, cLeft, headerHeight, sep);
-                }
-
-                if (person.Color is { } pc)
-                {
-                    accent.Color = ToSk(pc);
-                    skCanvas.DrawRect(cLeft + 2, headerHeight - 3, columnWidth - 4, 2, accent);
-                }
-
-                textPaint.Color = isToday ? ToSk(theme.Today) : ToSk(person.Color ?? theme.Foreground);
-                skCanvas.DrawText(ScheduleColumnBuilder.Initials(person.Name), cCx, headerHeight - 7, SKTextAlign.Center, secondaryFont, textPaint);
-            }
+                Day = day,
+                IsToday = day == todayDate,
+                Left = railWidth - (float)horizontalOffset + (i * dayWidth),
+                Width = dayWidth,
+            });
         }
 
-        skCanvas.Restore();
-    }
+        var ctx = new InfiniteScheduleHeaderContext
+        {
+            Theme = ActiveTheme,
+            RailWidth = railWidth,
+            HeaderHeight = headerHeight,
+            Width = logicalW,
+            Persons = persons,
+            PersonColumnWidth = dayWidth / personCount,
+            Days = days,
+        };
 
-    private void DrawCorner(SKCanvas skCanvas, float railWidth, float headerHeight)
-    {
-        using var bg = new SKPaint { Color = ToSk(ActiveTheme.HeaderBackground ?? ActiveTheme.Background), Style = SKPaintStyle.Fill };
-        skCanvas.DrawRect(new SKRect(0, 0, railWidth, headerHeight), bg);
+        skCanvas.Save();
+        skCanvas.ClipRect(new SKRect(0, 0, logicalW, headerHeight));
+        ActiveRenderer.DrawHeader(skCanvas, ctx);
+        skCanvas.Restore();
     }
 
     // Live overlays drawn on top of the cached strip: the typing draft and the holding ghost.

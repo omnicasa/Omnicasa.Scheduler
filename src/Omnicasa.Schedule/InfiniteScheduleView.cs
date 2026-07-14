@@ -2091,15 +2091,23 @@ public sealed class InfiniteScheduleView : ContentView
         float columnWidth = dayWidth / Math.Max(1, PersonCount);
         int dayIndex = stripStartDay + (int)Math.Floor(localX / dayWidth);
         var when = AnchorDay.Date.AddDays(dayIndex) + BuildTimeScale().TimeForY(localY);
-        _ = columnWidth;
+
+        // Which person's sub-column was tapped (per-person mode) — the app binds a new draft to it.
+        string? personId = null;
+        if (Persons is { Count: > 1 } persons)
+        {
+            float withinDay = localX - ((dayIndex - stripStartDay) * dayWidth);
+            int slot = Math.Clamp((int)Math.Floor(withinDay / columnWidth), 0, persons.Count - 1);
+            personId = persons[slot].Id;
+        }
 
         if (longPress)
         {
-            LongTapped?.Invoke(this, new ScheduleTappedEventArgs(when));
+            LongTapped?.Invoke(this, new ScheduleTappedEventArgs(when, personId));
         }
         else
         {
-            Tapped?.Invoke(this, new ScheduleTappedEventArgs(when));
+            Tapped?.Invoke(this, new ScheduleTappedEventArgs(when, personId));
         }
     }
 }

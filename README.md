@@ -189,6 +189,59 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 
 _Not yet wired: all-day bars, and `HeaderMode` `Linked`/`None`._
 
+### `ScheduleView` vs `InfiniteScheduleView`
+
+Both draw the same day/hour grid from the same `IScheduleItem` / `IPerson` contracts and share most member
+names — but they are built on different rendering stacks and solve different scrolling problems. Pick by how
+your **day axis** behaves and which stack you can take on.
+
+#### Rendering tech
+
+| | `ScheduleView` | `InfiniteScheduleView` |
+| --- | --- | --- |
+| **Draw stack** | MAUI `GraphicsView` (`Microsoft.Maui.Graphics`) canvases inside a native `ScrollView` | SkiaSharp **`SKGLView`** — one GPU canvas draws every visible day |
+| **Day axis** | Fixed viewport `[StartDay, EndDay]`, 1–7 columns. Native vertical `ScrollView` for time | Owns a **virtual horizontal offset** from `AnchorDay`; infinite (optionally bounded by `MinDay`/`MaxDay`) |
+| **Frame model** | Retained MAUI drawables; the platform scrolls the body | **Snapshot-and-translate**: a strip of day columns is recorded once into an `SKPicture` and replayed translated; re-recorded only near the buffer edge → **flat per-frame cost** |
+| **Input** | MAUI gesture recognizers (tap, long-press, pinch) + `ScrollView` | One unified `SKGLView.Touch` state machine arbitrating scroll / tap / drag / **two-finger pinch** and day-snap paging |
+| **Extra dependency** | None beyond MAUI | **SkiaSharp.Views.Maui 3.x** + `.UseSkiaSharp()` in `MauiProgram` |
+| **Custom rendering** | `Renderer` — `ScheduleViewRenderer` over `ICanvas` | `SkiaRenderer` — `InfiniteScheduleRenderer` over `SKCanvas` (the `ICanvas` `Renderer` is accepted for parity but **ignored**) |
+| **Platforms** | Any MAUI head; the class also compiles for the **net9.0 headless** target, so its drawables/logic are unit-tested on a desktop host | **iOS + Android only** (`#if ANDROID || IOS`). Simulator GL can be flaky — test on a device. Only the pure day-axis math (`InfiniteScheduleGeometry`) is headless-testable |
+
+#### Feature parity
+
+| Capability | `ScheduleView` | `InfiniteScheduleView` |
+| --- | --- | --- |
+| Intraday blocks, per-person sub-columns, tap / long-press, `TypingItem`, `HoldingSchedule`, pinch-zoom, `ScrollToTimeAsync` | ✅ | ✅ |
+| Long-press quick-action menu (`ItemActionsProvider`) | ✅ | ✅ |
+| Infinite / unbounded horizontal day scroll | ➖ (fixed range; wrap in a `CarouselView` to page — see `CarouselSchedulePage`) | ✅ (built in; `PagingEnabled`, `CurrentDay`, `VisibleRangeChanged`) |
+| **All-day / cross-date bars** | ✅ | ❌ not yet |
+| **`HeaderMode` `Linked` / `None`** (external glass header via `ScheduleHeaderView`) | ✅ | ❌ `Inhouse` only |
+| `HourHeight` range | `[24, 200]` | `[24, 300]` |
+| Default `ViewMode` | `7` (week) | `1` (day) |
+
+#### Which one to use
+
+**Reach for `ScheduleView` when** — it's the mature, dependency-light default:
+
+- Your range is **fixed or bounded** (a day / 3-day / week view, or a known date window).
+- You need **all-day / cross-date bars** or an **external linked header** (`ScheduleHeaderView`, e.g. an iOS-26 glass bar).
+- You want to **avoid the SkiaSharp dependency** / `.UseSkiaSharp()` registration, or you target MAUI heads beyond iOS/Android.
+- You value **headless unit-testability** of the control itself.
+- Horizontal paging is occasional — a `CarouselView` of pages with a shared `VerticalOffset` is enough.
+
+**Reach for `InfiniteScheduleView` when** — continuous horizontal motion is the point:
+
+- **Endless left/right day scrolling is the core interaction** — swipe fluidly across weeks/months with no page seams and no native scroll-rect limit.
+- The date domain is **large or unbounded**, making a carousel's page management awkward.
+- You want **GPU-smooth 60 fps** pan / fling / pinch with per-frame cost that stays flat regardless of how far you've scrolled.
+- You ship **iOS + Android only** and can take the SkiaSharp 3.x dependency and verify on a device.
+- You don't (yet) need all-day bars or a linked/none header.
+
+**Migrating `ScheduleView` → `InfiniteScheduleView`:** member names are largely identical, so swapping the type is
+mostly mechanical. Replace `StartDay`/`EndDay` with `AnchorDay` (+ optional `MinDay`/`MaxDay`), move any custom
+painting from `ScheduleViewRenderer` (`ICanvas`) to `InfiniteScheduleRenderer` (`SkiaRenderer`, `SKCanvas`), add
+`.UseSkiaSharp()`, and drop reliance on all-day bars / `Linked` headers until they land.
+
 ### `ScheduleHeaderView`
 
 A standalone day/person header bar for pinning **outside** the schedule — e.g. a translucent, iOS 26

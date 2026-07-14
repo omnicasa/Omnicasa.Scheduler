@@ -25,13 +25,18 @@ public sealed class ScheduleTappedEventArgs : EventArgs
 {
     /// <summary>Initializes a new instance of the <see cref="ScheduleTappedEventArgs"/> class.</summary>
     /// <param name="when">Date and time at the tap location.</param>
-    public ScheduleTappedEventArgs(DateTime when)
+    /// <param name="personId">Person whose sub-column was tapped, or null in single-person mode.</param>
+    public ScheduleTappedEventArgs(DateTime when, string? personId = null)
     {
         When = when;
+        PersonId = personId;
     }
 
     /// <summary>Gets the date and time at the tap location (day of the column + time-of-day at the tap Y).</summary>
     public DateTime When { get; }
+
+    /// <summary>Gets the person whose sub-column was tapped (per-person mode), or null.</summary>
+    public string? PersonId { get; }
 }
 
 /// <summary>Event payload for an action chosen from an appointment's long-press menu.</summary>

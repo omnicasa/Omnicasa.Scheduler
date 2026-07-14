@@ -8,26 +8,28 @@
     <ContentPage.ToolbarItems>
         <ToolbarItem Text="Schedule" Clicked="OnOpenSchedule" />
         <ToolbarItem Text="Carousel" Clicked="OnOpenCarousel" />
+        <ToolbarItem Text="Infinite" Clicked="OnOpenInfinite" />
+        <ToolbarItem Text="Canvas" Clicked="OnOpenLargeOne" />
         <ToolbarItem Text="Glass" Clicked="OnOpenGlass" />
         <ToolbarItem Text="Agenda" Clicked="OnOpenAgenda" />
         <ToolbarItem Text="Widget" Clicked="OnOpenWidget" />
     </ContentPage.ToolbarItems>
 
     <Grid>
-        <!-- Year layer (bottom) -->
-        <sched:YearCalendarView x:Name="Year"
-                                MinYear="2020"
-                                MaxYear="2032"
-                                InitialYear="2026"
-                                DayTapped="OnYearDayTapped" />
+        <!-- Year layer (bottom) — single-canvas SKGLView -->
+        <sched:InfiniteYearCalendarView x:Name="Year"
+                                        MinYear="2020"
+                                        MaxYear="2032"
+                                        InitialYear="2026"
+                                        DayTapped="OnYearDayTapped" />
 
-        <!-- Month layer (full-size scrollable months) -->
-        <sched:MonthCalendarView x:Name="Month"
-                                 MinYear="2020"
-                                 MaxYear="2032"
-                                 IsVisible="False"
-                                 Opacity="0"
-                                 DayTapped="OnMonthDayTapped" />
+        <!-- Month layer (single-canvas full-size scrollable months) -->
+        <sched:InfiniteMonthCalendarView x:Name="Month"
+                                         MinYear="2020"
+                                         MaxYear="2032"
+                                         IsVisible="False"
+                                         Opacity="0"
+                                         DayTapped="OnMonthDayTapped" />
 
         <!-- Day layer (agenda for the chosen day) -->
         <Grid x:Name="DayLayer"

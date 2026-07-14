@@ -8,7 +8,7 @@ Smooth calendar and agenda controls for .NET MAUI (iOS + Android), inspired by t
 
 📦 **NuGet:** <https://www.nuget.org/packages/Omnicasa.Schedule>
 
-The package ships six drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
+The package ships a family of drop-in controls. Items are bound through small interfaces (`IScheduleItem`, `IPerson`) so you can implement them on your own models — nothing forces you onto the library's concrete types.
 
 - **`ScheduleView`** — the core scheduler: a fixed `[StartDay, EndDay]` viewport (1–7 day columns), optional per-person sub-columns, an all-day / cross-date bar above the grid, pinch-to-zoom, tap / long-tap with date-time payloads, and a movable / resizable "typing" draft block.
 - **`ScheduleHeaderView`** — the schedule's day/person header as a standalone bar, for pinning over a full-bleed schedule (iOS 26 liquid-glass style) or sharing one header across a `CarouselView` of day pages.
@@ -16,6 +16,7 @@ The package ships six drop-in controls. Items are bound through small interfaces
 - **`AgendaListView`** — an infinitely-scrolling agenda: one row per day with the date on the left and that day's appointments on the right ("no events" placeholders for empty days), built on `CollectionView`.
 - **`MonthCalendarView`** — full-size months stacked vertically with continuous scroll (one month per screen), event-density dots, and per-day tap. Pairs with the year view for a year → month → day drill-down.
 - **`YearCalendarView`** — scrollable year-at-a-glance grid with 12 months per year and event-density dots.
+- **`InfiniteMonthCalendarView`** / **`InfiniteYearCalendarView`** — GPU single-canvas rewrites of the two calendar views (one **SkiaSharp `SKGLView`** instead of dozens/hundreds of composed month views). Same API, so they drop in where the classic views got heavy over a wide year range.
 
 ## Screenshots
 
@@ -147,6 +148,47 @@ Day.AppointmentSource  = Year.AppointmentSource;
 
 `ScrollToTimeAsync(timeOfDay, animated)` programmatically scrolls a time to the top.
 
+### `InfiniteScheduleView`
+
+A single-canvas, GPU-rendered schedule whose **day axis scrolls infinitely** — one continuous
+control instead of a `CarouselView` of per-day `ScheduleView` pages. It draws every visible day onto
+one **SkiaSharp `SKGLView`** and owns a virtual horizontal offset, so there's no page count and no
+native scroll rect to run out of. Rendering uses snapshot-and-translate (a buffer of day columns
+recorded once into an `SKPicture`, re-recorded only near the buffer edge), keeping per-frame cost flat.
+
+> Requires **SkiaSharp.Views.Maui 3.x** (2.88 has no iOS `SKGLView` handler). Register it with
+> `.UseSkiaSharp()` in `MauiProgram`. iOS-simulator GL can be unreliable — test on a device.
+
+It mirrors much of the `ScheduleView` API (same member names) so callers can largely swap the type;
+`StartDay`/`EndDay` are replaced by `AnchorDay` + optional `MinDay`/`MaxDay`.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `ItemsSource` | `null` | `IEnumerable` of `IScheduleItem`. Call `RefreshItems()` after mutating an item's time in place. |
+| `AnchorDay` | today | The day at horizontal offset 0; scrolling is measured relative to it. |
+| `MinDay` / `MaxDay` | `null` | Optional bounds; `null` = unbounded (truly infinite) in that direction. |
+| `ViewMode` | `1` | Day columns visible at once (1–7); sets the day-column width. |
+| `HourHeight` | `60` | Pixels per hour; clamped `[24, 300]`, **two-finger pinch to zoom**. |
+| `VerticalOffset` | `0` | Two-way vertical (time) scroll offset. |
+| `Persons` | `null` | `IList<IPerson>`; each day splits into per-person sub-columns (header shows initials + accent). |
+| `TypingItem` | `null` | Draft block — drag to move, corners to resize; pops in on appear. |
+| `HoldingSchedule` | `null` | "Held" block — drag to reposition; shows a leash back to its origin; reports `HoldingDropped`. |
+| `TopContentInset` / `BottomContentInset` | `0` | Blank space above midnight / below 24:00 inside the body. |
+| `PagingEnabled` | `true` | Horizontal gestures: a slow drag snaps to the nearest **day**; a flick pages exactly **one screenful** (`ViewMode` days) carousel-style. |
+| `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.8` / `0.5` / `12000` | Momentum tuning for vertical fling. |
+| `CurrentDay` | today | **Two-way**: the leftmost visible day. Updates as you scroll/page; setting it scrolls there. |
+| `Theme` | built-in | `ScheduleViewTheme` — colors, fonts, and `TimeRailWidth` / `HeaderHeight`. |
+| `SkiaRenderer` | built-in | Skia-native painter — see [Custom rendering](#custom-rendering). |
+| `Renderer` | `null` | Accepted for `ScheduleView` parity but **ignored** (the GPU path uses `SkiaRenderer`). |
+| `ItemActionsProvider` | `null` | Return actions to show the native long-press menu (iOS `UIMenu` / Android `PopupMenu`). |
+| `Tapped` / `LongTapped` / `ItemTapped` / `ItemLongTapped` | — | Same payloads as `ScheduleView`. |
+| `ItemActionInvoked` / `HoldingDropped` | — | Menu action chosen / held block dropped. |
+| `VisibleRangeChanged` | — | Fires with `FirstDay` / `LastDay` whenever the visible day window changes (drive a page title). |
+
+`ScrollToTimeAsync(timeOfDay, animated)` scrolls a time to the top.
+
+_Not yet wired: all-day bars, and `HeaderMode` `Linked`/`None`._
+
 ### `ScheduleHeaderView`
 
 A standalone day/person header bar for pinning **outside** the schedule — e.g. a translucent, iOS 26
@@ -257,6 +299,34 @@ Since this is a `CollectionView`, not a canvas, customization is via **`DataTemp
 | `DayTapped` event | — | Fires with a `DateOnly` when a day cell is tapped. |
 | `ScrollToYear(year, animated)` | — | Programmatically scroll. |
 
+### `InfiniteMonthCalendarView` / `InfiniteYearCalendarView`
+
+GPU-rendered rewrites of the two calendar views. The classic `MonthCalendarView` / `YearCalendarView`
+compose many MAUI month views in a `ScrollView` (the year view is 12 × every year in range) — which
+gets heavy over a wide range. These draw **only the visible blocks** onto one **SkiaSharp `SKGLView`**
+and own a virtual vertical offset, so a wide `MinYear…MaxYear` no longer inflates the view tree.
+Scrolling is a momentum fling that **snaps to a whole month / year**.
+
+> Requires **SkiaSharp.Views.Maui 3.x** (register with `.UseSkiaSharp()` in `MauiProgram`), same as
+> [`InfiniteScheduleView`](#infinitescheduleview). Android + iOS only. iOS-simulator GL can be
+> unreliable — test on a device.
+
+They're **API-compatible** with the classic views, so you migrate by swapping the type — every
+member below matches `MonthCalendarView` / `YearCalendarView`:
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `AppointmentSource` | `null` | Source used to compute per-day event-density dots. |
+| `MinYear` / `MaxYear` | today ± 5 years | Inclusive range rendered. |
+| `InitialDate` (month) / `InitialYear` (year) | today / current year | Block scrolled into view on first load. |
+| `Theme` | built-in | `ScheduleTheme` (colors + optional fonts). |
+| `Renderer` | built-in | `InfiniteMonthRenderer` — Skia-native painter, see [Custom rendering](#custom-rendering). |
+| `DayTapped` event | — | Fires with a `DateOnly` when a day cell is tapped. |
+| `ScrollToMonth(year, month, animated)` (month) / `ScrollToYear(year, animated)` (year) | — | Programmatically scroll. |
+
+A two-finger gesture (these views have no zoom) freezes scrolling and settles to the nearest block on
+release, so a pinch never jitters the view.
+
 ## Theming
 
 Override colors (and, for `ScheduleView`, font sizes) via the theme object and assign it to any control:
@@ -272,7 +342,7 @@ Day.Theme = new ScheduleTheme
 };
 ```
 
-The calendar views (`MonthCalendarView` / `YearCalendarView`) also read **font** and **size** from `ScheduleTheme`. Font sizes are nullable — leave them `null` to auto-fit each cell, or set a value to pin it:
+The calendar views (`MonthCalendarView` / `YearCalendarView` and their GPU variants `InfiniteMonthCalendarView` / `InfiniteYearCalendarView`) also read **font** and **size** from `ScheduleTheme`. Font sizes are nullable — leave them `null` to auto-fit each cell, or set a value to pin it:
 
 ```csharp
 Month.Theme = new ScheduleTheme
@@ -346,6 +416,36 @@ public sealed class MyMonthRenderer : MonthRenderer
 
 // Month.Renderer = new MyMonthRenderer();  // also on YearCalendarView and MonthGraphicsView
 ```
+
+The GPU calendar views (`InfiniteMonthCalendarView` / `InfiniteYearCalendarView`) use a **separate**,
+Skia-native renderer, **`InfiniteMonthRenderer`** — same three hooks (`DrawDay`, `DrawWeekday`,
+`DrawTitle`), but they paint straight onto an `SKCanvas` instead of an `ICanvas`. (A shared base
+isn't possible: bridging `ICanvas` to Skia would pin SkiaSharp 2.88 and clash with the 3.x the
+`SKGLView` needs.) So a `MonthRenderer` subclass won't plug into the GPU views — port its body to the
+`SKCanvas` API:
+
+```csharp
+public sealed class MyInfiniteMonthRenderer : InfiniteMonthRenderer
+{
+    public override void DrawDay(MonthDayPaintContext ctx)
+    {
+        if (ctx.EventCount >= 3 && !ctx.IsToday)
+        {
+            using var pill = new SKPaint { Color = new SKColor(0xFF, 0x9F, 0x0A), IsAntialias = true };
+            float r = Math.Min(ctx.Rect.Width, ctx.Rect.Height) * 0.34f;
+            ctx.Canvas.DrawCircle(ctx.Rect.MidX, ctx.Rect.MidY, r, pill);
+        }
+
+        base.DrawDay(ctx);   // day number + today highlight + density dot on top
+    }
+}
+
+// Month.Renderer = new MyInfiniteMonthRenderer();  // same renderer drives the year view's compact tiles
+```
+
+`MonthDayPaintContext` carries `Canvas`, `Rect`, `Date`, `IsToday`, `EventCount`, the resolved
+`TextColor` (`SKColor`) / `FontSize`, and `Compact` (true for the year view's mini-month tiles).
+Subclasses also get `ResolveTypeface(theme, bold)`, a vertically-centered `DrawText(...)`, and `ToSk(color)`.
 
 Notes:
 

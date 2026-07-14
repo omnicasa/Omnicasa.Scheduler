@@ -1,4 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
+using SkiaSharp.Views.Maui.Controls;
+using SkiaSharp.Views.Maui.Controls.Hosting;
+using SkiaSharp.Views.Maui.Handlers;
 
 namespace Omnicasa.Schedule.Sample;
 
@@ -11,7 +14,14 @@ public static class MauiProgram
     {
         var builder = MauiApp.CreateBuilder();
         builder
-            .UseMauiApp<App>();
+            .UseMauiApp<App>()
+            .UseSkiaSharp()
+            .ConfigureMauiHandlers(handlers =>
+            {
+                // Explicit so the SKGLView handler is guaranteed registered on every platform.
+                handlers.AddHandler(typeof(SKGLView), typeof(SKGLViewHandler));
+                handlers.AddHandler(typeof(SKCanvasView), typeof(SKCanvasViewHandler));
+            });
 
 #if DEBUG
         builder.Logging.AddDebug();

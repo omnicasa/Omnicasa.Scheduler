@@ -156,6 +156,16 @@ public partial class MainPage : ContentPage
         await Shell.Current.GoToAsync(nameof(CarouselSchedulePage));
     }
 
+    private async void OnOpenInfinite(object? sender, EventArgs e)
+    {
+        await Shell.Current.GoToAsync(nameof(InfiniteDaySchedulePage));
+    }
+
+    private async void OnOpenLargeOne(object? sender, EventArgs e)
+    {
+        await Shell.Current.GoToAsync(nameof(LargeOne));
+    }
+
     private async void OnOpenGlass(object? sender, EventArgs e)
     {
         await Shell.Current.GoToAsync(nameof(GlassSchedulePage));

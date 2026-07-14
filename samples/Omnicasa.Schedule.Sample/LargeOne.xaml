@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:schedule="clr-namespace:Omnicasa.Schedule;assembly=Omnicasa.Schedule"
+             x:Class="Omnicasa.Schedule.Sample.LargeOne"
+             Title="Infinite (single canvas)">
+  <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="8" RowSpacing="6">
+
+    <!-- Live readout of the last tap / long-press event -->
+    <Label x:Name="Status" Grid.Row="0"
+           Text="Tap or long-press a block or empty space…"
+           FontSize="12" LineBreakMode="TailTruncation" />
+
+    <!-- Feature toggles -->
+    <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
+      <HorizontalStackLayout Spacing="6">
+        <Button Text="Day" Clicked="OnDay" />
+        <Button Text="3-Day" Clicked="OnThreeDay" />
+        <Button Text="Week" Clicked="OnWeek" />
+        <Button Text="→ 8:00" Clicked="OnScroll8" />
+        <Button Text="→ 18:00" Clicked="OnScroll18" />
+        <Label Text="Persons" VerticalOptions="Center" />
+        <Switch x:Name="PersonsSwitch" Toggled="OnPersonsToggled" />
+        <Label Text="Bound ±14d" VerticalOptions="Center" />
+        <Switch x:Name="BoundSwitch" Toggled="OnBoundToggled" />
+        <Label Text="Typing" VerticalOptions="Center" />
+        <Switch x:Name="TypingSwitch" Toggled="OnTypingToggled" />
+        <Label Text="Holding" VerticalOptions="Center" />
+        <Switch x:Name="HoldingSwitch" Toggled="OnHoldingToggled" />
+        <Label Text="Custom draw" VerticalOptions="Center" />
+        <Switch x:Name="CustomSwitch" Toggled="OnCustomToggled" />
+        <Label Text="Paging" VerticalOptions="Center" />
+        <Switch x:Name="PagingSwitch" IsToggled="True" Toggled="OnPagingToggled" />
+      </HorizontalStackLayout>
+    </ScrollView>
+
+    <!-- Scroll-feel sliders -->
+    <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="6" RowDefinitions="Auto">
+      <Label Grid.Column="0" Text="Gain" VerticalOptions="Center" FontSize="12" />
+      <Slider x:Name="GainSlider" Grid.Column="1" Minimum="0.5" Maximum="4" Value="1.8"
+              ValueChanged="OnGainChanged" />
+      <Label Grid.Column="2" Text="Glide" VerticalOptions="Center" FontSize="12" />
+      <Slider x:Name="GlideSlider" Grid.Column="3" Minimum="0.1" Maximum="1.5" Value="0.5"
+              ValueChanged="OnGlideChanged" />
+    </Grid>
+
+    <schedule:InfiniteScheduleView x:Name="Schedule" Grid.Row="3" ViewMode="1"
+                                   TopContentInset="30"
+                                   BottomContentInset="60"/>
+  </Grid>
+</ContentPage>

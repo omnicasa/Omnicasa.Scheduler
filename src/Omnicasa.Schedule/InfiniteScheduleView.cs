@@ -1101,8 +1101,8 @@ public sealed class InfiniteScheduleView : ContentView
         skCanvas.Restore();
     }
 
-    // Current-time marker: a NowIndicator-coloured line across the visible columns at the current
-    // time, plus a time badge in the rail — only when today is one of the visible days. Drawn live
+    // Current-time marker: a NowIndicator-coloured line across today's column at the current time,
+    // plus a time badge in the rail — only when today is one of the visible days. Drawn live
     // (not into the cached day strip) so it advances with the minute timer.
     private void DrawNowMarker(SKCanvas skCanvas, TimeScale timeScale, float railWidth, float headerHeight, float logicalW, float logicalH, float bodyWidth)
     {
@@ -1123,15 +1123,19 @@ public sealed class InfiniteScheduleView : ContentView
 
         var color = ToSk(ActiveTheme.NowIndicator);
 
-        // Line across the visible body width (matches the classic full-width marker).
-        skCanvas.Save();
-        skCanvas.ClipRect(new SKRect(railWidth, headerHeight, logicalW, logicalH));
-        using (var line = new SKPaint { Color = color, StrokeWidth = 1.5f, IsAntialias = true })
+        // Line spans only TODAY's column — in multi-day view the other visible columns aren't "now",
+        // so it must not bleed across them. Clip to today's column intersected with the visible body.
+        float todayLeft = railWidth - (float)horizontalOffset + (todayIndex * dayWidth);
+        float lineLeft = Math.Max(railWidth, todayLeft);
+        float lineRight = Math.Min(logicalW, todayLeft + dayWidth);
+        if (lineRight > lineLeft)
         {
-            skCanvas.DrawLine(railWidth, y, logicalW, y, line);
+            skCanvas.Save();
+            skCanvas.ClipRect(new SKRect(lineLeft, headerHeight, lineRight, logicalH));
+            using var line = new SKPaint { Color = color, StrokeWidth = 1.5f, IsAntialias = true };
+            skCanvas.DrawLine(lineLeft, y, lineRight, y, line);
+            skCanvas.Restore();
         }
-
-        skCanvas.Restore();
 
         // Time badge in the rail.
         float fontSize = (float)ActiveTheme.HourLabelFontSize;

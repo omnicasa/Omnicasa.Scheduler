@@ -415,8 +415,24 @@ public sealed class InfiniteScheduleView : ContentView
         SizeChanged += (_, _) => OnLayoutChanged();
 
         // Advance the current-time marker while the view is on screen (it moves ~1px/min).
-        Loaded += (_, _) => StartNowTimer();
+        Loaded += (_, _) =>
+        {
+            StartNowTimer();
+            Invalidate();
+        };
         Unloaded += (_, _) => StopNowTimer();
+
+        // The GL surface can be torn down while the view is off-screen (tab switch / memory pressure)
+        // and, with HasRenderLoop off, stays blank until the next data/scroll event. Repaint the cached
+        // frame whenever the native canvas re-attaches so it comes straight back on reopen instead of
+        // after the next fetch (a few seconds). Handler goes null on detach — only repaint on attach.
+        canvas.HandlerChanged += (_, _) =>
+        {
+            if (canvas.Handler != null)
+            {
+                Invalidate();
+            }
+        };
 
 #if IOS
         // Native UIContextMenuInteraction for the appointment quick-action menu (needs the platform view).
@@ -1706,13 +1722,16 @@ public sealed class InfiniteScheduleView : ContentView
             dragOriginEnd = it.End;
         }
 
-        float corner = Math.Min(18f, Math.Min(rect.Height / 3f, rect.Width / 2f));
-        float relX = (float)p.X - rect.Left;
+        // Resize bands run the FULL WIDTH along the top (start) and bottom (end) edges; the middle
+        // moves. A block's time is vertical, so the top/bottom edge is the natural grab — corners
+        // would force pixel-accurate diagonal aiming. Band height is capped so short blocks still
+        // keep a middle "move" zone (top third / bottom third at most).
+        float edge = Math.Min(18f, rect.Height / 3f);
         float relY = (float)p.Y - rect.Top;
-        bool inTopLeft = relX < corner && relY < corner;
-        bool inBottomRight = (rect.Width - relX) < corner && (rect.Height - relY) < corner;
-        blockMode = inTopLeft ? BlockDragMode.ResizeStart
-            : inBottomRight ? BlockDragMode.ResizeEnd
+        bool inTop = relY < edge;
+        bool inBottom = (rect.Height - relY) < edge;
+        blockMode = inTop ? BlockDragMode.ResizeStart
+            : inBottom ? BlockDragMode.ResizeEnd
             : BlockDragMode.Move;
 
         dragStartPoint = p;

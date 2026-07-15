@@ -415,8 +415,24 @@ public sealed class InfiniteScheduleView : ContentView
         SizeChanged += (_, _) => OnLayoutChanged();
 
         // Advance the current-time marker while the view is on screen (it moves ~1px/min).
-        Loaded += (_, _) => StartNowTimer();
+        Loaded += (_, _) =>
+        {
+            StartNowTimer();
+            Invalidate();
+        };
         Unloaded += (_, _) => StopNowTimer();
+
+        // The GL surface can be torn down while the view is off-screen (tab switch / memory pressure)
+        // and, with HasRenderLoop off, stays blank until the next data/scroll event. Repaint the cached
+        // frame whenever the native canvas re-attaches so it comes straight back on reopen instead of
+        // after the next fetch (a few seconds). Handler goes null on detach — only repaint on attach.
+        canvas.HandlerChanged += (_, _) =>
+        {
+            if (canvas.Handler != null)
+            {
+                Invalidate();
+            }
+        };
 
 #if IOS
         // Native UIContextMenuInteraction for the appointment quick-action menu (needs the platform view).
@@ -1085,8 +1101,8 @@ public sealed class InfiniteScheduleView : ContentView
         skCanvas.Restore();
     }
 
-    // Current-time marker: a NowIndicator-coloured line across the visible columns at the current
-    // time, plus a time badge in the rail — only when today is one of the visible days. Drawn live
+    // Current-time marker: a NowIndicator-coloured line across today's column at the current time,
+    // plus a time badge in the rail — only when today is one of the visible days. Drawn live
     // (not into the cached day strip) so it advances with the minute timer.
     private void DrawNowMarker(SKCanvas skCanvas, TimeScale timeScale, float railWidth, float headerHeight, float logicalW, float logicalH, float bodyWidth)
     {
@@ -1107,15 +1123,19 @@ public sealed class InfiniteScheduleView : ContentView
 
         var color = ToSk(ActiveTheme.NowIndicator);
 
-        // Line across the visible body width (matches the classic full-width marker).
-        skCanvas.Save();
-        skCanvas.ClipRect(new SKRect(railWidth, headerHeight, logicalW, logicalH));
-        using (var line = new SKPaint { Color = color, StrokeWidth = 1.5f, IsAntialias = true })
+        // Line spans only TODAY's column — in multi-day view the other visible columns aren't "now",
+        // so it must not bleed across them. Clip to today's column intersected with the visible body.
+        float todayLeft = railWidth - (float)horizontalOffset + (todayIndex * dayWidth);
+        float lineLeft = Math.Max(railWidth, todayLeft);
+        float lineRight = Math.Min(logicalW, todayLeft + dayWidth);
+        if (lineRight > lineLeft)
         {
-            skCanvas.DrawLine(railWidth, y, logicalW, y, line);
+            skCanvas.Save();
+            skCanvas.ClipRect(new SKRect(lineLeft, headerHeight, lineRight, logicalH));
+            using var line = new SKPaint { Color = color, StrokeWidth = 1.5f, IsAntialias = true };
+            skCanvas.DrawLine(lineLeft, y, lineRight, y, line);
+            skCanvas.Restore();
         }
-
-        skCanvas.Restore();
 
         // Time badge in the rail.
         float fontSize = (float)ActiveTheme.HourLabelFontSize;
@@ -1706,13 +1726,16 @@ public sealed class InfiniteScheduleView : ContentView
             dragOriginEnd = it.End;
         }
 
-        float corner = Math.Min(18f, Math.Min(rect.Height / 3f, rect.Width / 2f));
-        float relX = (float)p.X - rect.Left;
+        // Resize bands run the FULL WIDTH along the top (start) and bottom (end) edges; the middle
+        // moves. A block's time is vertical, so the top/bottom edge is the natural grab — corners
+        // would force pixel-accurate diagonal aiming. Band height is capped so short blocks still
+        // keep a middle "move" zone (top third / bottom third at most).
+        float edge = Math.Min(18f, rect.Height / 3f);
         float relY = (float)p.Y - rect.Top;
-        bool inTopLeft = relX < corner && relY < corner;
-        bool inBottomRight = (rect.Width - relX) < corner && (rect.Height - relY) < corner;
-        blockMode = inTopLeft ? BlockDragMode.ResizeStart
-            : inBottomRight ? BlockDragMode.ResizeEnd
+        bool inTop = relY < edge;
+        bool inBottom = (rect.Height - relY) < edge;
+        blockMode = inTop ? BlockDragMode.ResizeStart
+            : inBottom ? BlockDragMode.ResizeEnd
             : BlockDragMode.Move;
 
         dragStartPoint = p;

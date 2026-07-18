@@ -92,6 +92,30 @@ public sealed class InMemoryAppointmentSource : IAppointmentSource
                 }
             }
         }
+
+        // Broad multi-year fill so the month/year density dots have data across the whole calendar
+        // range — this is the heavy tally that used to freeze the UI thread before BuildCounts was
+        // moved off it. ~6 years either side of today matches the sample's 2020–2032 view range.
+        var wideFrom = new DateTime(today.Year - 6, 1, 1);
+        var wideTo = new DateTime(today.Year + 6, 12, 31);
+        for (var day = wideFrom; day <= wideTo; day = day.AddDays(1))
+        {
+            int events = rng.Next(0, 4);
+            for (int i = 0; i < events; i++)
+            {
+                int startHour = rng.Next(7, 19);
+                var start = day.AddHours(startHour).AddMinutes(minuteChoices[rng.Next(minuteChoices.Length)]);
+                items.Add(new Appointment
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Title = titles[rng.Next(titles.Length)],
+                    Start = start,
+                    End = start.AddMinutes(durationChoices[rng.Next(durationChoices.Length)]),
+                    Color = palette[rng.Next(palette.Length)],
+                    PersonId = personIds[rng.Next(personIds.Length)],
+                });
+            }
+        }
     }
 
     /// <inheritdoc />

@@ -233,6 +233,43 @@ public sealed class InfiniteMonthCalendarView : ContentView
             (byte)Math.Round(c.Alpha * 255));
     }
 
+    // Runs on a background thread: fetch appointments and tally per-day counts, clamped to the
+    // requested window so one long/all-day event can't blow the day-by-day loop out of bounds.
+    private static async Task<Dictionary<DateOnly, int>> BuildCounts(IAppointmentSource source, DateTime from, DateTime to, CancellationToken ct)
+    {
+        var list = await source.GetAsync(from, to, ct).ConfigureAwait(false);
+        var lo = DateOnly.FromDateTime(from);
+        var hi = DateOnly.FromDateTime(to);
+        var map = new Dictionary<DateOnly, int>();
+        foreach (var a in list)
+        {
+            ct.ThrowIfCancellationRequested();
+            var d0 = DateOnly.FromDateTime(a.Start);
+            var d1 = DateOnly.FromDateTime(a.End);
+            if (d1 < d0)
+            {
+                d1 = d0;
+            }
+
+            if (d0 < lo)
+            {
+                d0 = lo;
+            }
+
+            if (d1 > hi)
+            {
+                d1 = hi;
+            }
+
+            for (var d = d0; d <= d1; d = d.AddDays(1))
+            {
+                map[d] = map.TryGetValue(d, out var c) ? c + 1 : 1;
+            }
+        }
+
+        return map;
+    }
+
     private void OnSizeChanged(object? sender, EventArgs e)
     {
         // Block height tracks the viewport, so a resize/rotation invalidates the px offset. Remember
@@ -679,30 +716,23 @@ public sealed class InfiniteMonthCalendarView : ContentView
             return;
         }
 
+        var source = AppointmentSource;
+        var from = new DateTime(MinYear, 1, 1);
+        var to = new DateTime(MaxYear, 12, 31, 23, 59, 59);
         try
         {
-            var from = new DateTime(MinYear, 1, 1);
-            var to = new DateTime(MaxYear, 12, 31, 23, 59, 59);
-            var list = await AppointmentSource.GetAsync(from, to, ct);
+            // Fetch and expand off the UI thread: a wide year range can mean thousands of day-by-day
+            // increments that would otherwise freeze the frame when the source binding first fires.
+            var fresh = await Task.Run(() => BuildCounts(source, from, to, ct), ct);
             if (ct.IsCancellationRequested)
             {
                 return;
             }
 
             counts.Clear();
-            foreach (var a in list)
+            foreach (var kv in fresh)
             {
-                var d0 = DateOnly.FromDateTime(a.Start);
-                var d1 = DateOnly.FromDateTime(a.End);
-                if (d1 < d0)
-                {
-                    d1 = d0;
-                }
-
-                for (var d = d0; d <= d1; d = d.AddDays(1))
-                {
-                    counts[d] = counts.TryGetValue(d, out var c) ? c + 1 : 1;
-                }
+                counts[kv.Key] = kv.Value;
             }
 
             Invalidate();

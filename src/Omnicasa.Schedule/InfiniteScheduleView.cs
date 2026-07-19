@@ -53,8 +53,8 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Speed below which a fling is treated as stopped (logical px/s).</summary>
     private const double FlingStopSpeed = 30;
 
-    /// <summary>Time constant (s) for easing the horizontal offset onto the nearest day edge.</summary>
-    private const double SettleTau = 0.09;
+    /// <summary>Time constant (s) of the critically damped spring that settles the horizontal offset.</summary>
+    private const double SettleTau = 0.11;
 
     /// <summary>Weight of the newest sample in the release-velocity moving average (0..1).</summary>
     private const double VelocitySmoothing = 0.5;
@@ -1635,14 +1635,7 @@ public sealed class InfiniteScheduleView : ContentView
         int startDay = (int)Math.Round(panStartHorizontal / snapWidth);
         int step = Math.Max(1, ViewMode);
         int target = velocityX < 0 ? startDay + step : startDay - step;
-        settleTargetH = ClampHorizontal(target * snapWidth);
-
-        velocityX = 0;
-        velocityY = 0;
-        flinging = true;
-        settling = true;
-        lastFrameSeconds = clock.Elapsed.TotalSeconds;
-        BeginRenderLoop();
+        BeginSettle(ClampHorizontal(target * snapWidth));
     }
 
     // Slow-drag day snap: settle the leftmost column to the nearest whole day (drag past half a day
@@ -1657,10 +1650,22 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         int target = (int)Math.Round(horizontalOffset / snapWidth); // nearest day
-        settleTargetH = ClampHorizontal(target * snapWidth);
+        BeginSettle(ClampHorizontal(target * snapWidth));
+    }
 
-        velocityX = 0;
+    // Starts the spring settle toward <paramref name="target"/>, carrying the finger's release velocity
+    // (content moves opposite the finger) so the animation continues the gesture rather than restarting.
+    // The seed is capped at the no-overshoot limit for a critically damped spring, |x| / SettleTau.
+    private void BeginSettle(double target)
+    {
+        double distance = target - horizontalOffset;
+        double seed = Math.Clamp(-velocityX, -MaxFlingSpeed, MaxFlingSpeed);
+        double limit = Math.Abs(distance) / SettleTau;
+
+        // Only momentum heading toward the target is useful; a backwards flick would fight the spring.
+        velocityX = seed * distance > 0 ? Math.Clamp(seed, -limit, limit) : 0;
         velocityY = 0;
+        settleTargetH = target;
         flinging = true;
         settling = true;
         lastFrameSeconds = clock.Elapsed.TotalSeconds;
@@ -1680,13 +1685,7 @@ public sealed class InfiniteScheduleView : ContentView
             return;
         }
 
-        flinging = true;
-        settling = true;
-        settleTargetH = target;
-        velocityX = 0;
-        velocityY = 0;
-        lastFrameSeconds = clock.Elapsed.TotalSeconds;
-        BeginRenderLoop();
+        BeginSettle(target);
     }
 
     private void BeginBlockDrag(InteractionKind kind, Point p, SKRect rect)
@@ -1956,9 +1955,17 @@ public sealed class InfiniteScheduleView : ContentView
         }
         else
         {
-            double k = 1 - Math.Exp(-dt / SettleTau);
-            horizontalOffset += (settleTargetH - horizontalOffset) * k;
-            if (Math.Abs(settleTargetH - horizontalOffset) < 0.5)
+            // Critically damped spring, exact analytic step: keeps the finger's velocity flowing into
+            // the page transition instead of restarting from zero, so the hand-off has no visible stall.
+            double omega = 1.0 / SettleTau;
+            double x = horizontalOffset - settleTargetH;
+            double c = velocityX + (omega * x);
+            double e = Math.Exp(-omega * dt);
+
+            horizontalOffset = settleTargetH + ((x + (c * dt)) * e);
+            velocityX = (c - (omega * (x + (c * dt)))) * e;
+
+            if (Math.Abs(settleTargetH - horizontalOffset) < 0.5 && Math.Abs(velocityX) < FlingStopSpeed)
             {
                 horizontalOffset = settleTargetH;
                 StopMotion();

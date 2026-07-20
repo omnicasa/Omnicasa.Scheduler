@@ -80,6 +80,9 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Breathing room below the last all-day lane before the time grid starts.</summary>
     private const float AllDayPanelPadding = 6f;
 
+    /// <summary>Time constant (s) of the ease that grows/shrinks the all-day panel between days.</summary>
+    private const double AllDayResizeTau = 0.09;
+
     /// <summary>Bindable property for <see cref="ItemsSource"/>.</summary>
     public static readonly BindableProperty ItemsSourceProperty =
         BindableProperty.Create(
@@ -335,7 +338,17 @@ public sealed class InfiniteScheduleView : ContentView
     // window they were laid out for so panning doesn't re-pack them every frame.
     private IReadOnlyList<AllDayBar> allDayBars = Array.Empty<AllDayBar>();
 
+    // Animated panel height, easing toward allDayTargetHeight so days with different lane counts
+    // don't make the grid jump.
     private float allDayHeight;
+
+    private float allDayTargetHeight;
+
+    private double allDayLastSeconds;
+
+    private bool allDayAnimating;
+
+    private bool allDaySettled;
 
     private int allDayFirstDay = int.MinValue;
 
@@ -946,6 +959,7 @@ public sealed class InfiniteScheduleView : ContentView
         // Size the all-day panel first: it eats into the body's height.
         EnsureStrip(bodyWidth, timeScale);
         EnsureAllDayBars(bodyWidth);
+        StepAllDayHeight();
 
         float bodyTop = BodyTop;
         float bodyHeight = logicalH - bodyTop;
@@ -984,7 +998,7 @@ public sealed class InfiniteScheduleView : ContentView
             skCanvas.Restore();
         }
 
-        overlayNeedsFrame = false;
+        overlayNeedsFrame = allDayAnimating;
         DrawOverlays(skCanvas, railWidth, bodyTop, logicalW, logicalH);
         DrawHourRail(skCanvas, timeScale, railWidth, bodyTop, logicalH);
         DrawNowMarker(skCanvas, timeScale, railWidth, bodyTop, logicalW, logicalH, bodyWidth);
@@ -1083,7 +1097,7 @@ public sealed class InfiniteScheduleView : ContentView
         if (!ShowAllDay)
         {
             allDayBars = Array.Empty<AllDayBar>();
-            allDayHeight = 0f;
+            allDayTargetHeight = 0f;
             return;
         }
 
@@ -1125,7 +1139,38 @@ public sealed class InfiniteScheduleView : ContentView
             lanes = Math.Max(lanes, bar.Lane + 1);
         }
 
-        allDayHeight = lanes > 0 ? (lanes * AllDayLaneHeight) + AllDayPanelPadding : 0f;
+        allDayTargetHeight = lanes > 0 ? (lanes * AllDayLaneHeight) + AllDayPanelPadding : 0f;
+    }
+
+    // Eases the panel toward its target height. Days carry different lane counts, so without this
+    // the grid would jump every time you swipe onto a day with (or without) an all-day item.
+    private void StepAllDayHeight()
+    {
+        if (!allDaySettled)
+        {
+            // First paint: adopt the height outright rather than sliding in from nothing.
+            allDaySettled = true;
+            allDayHeight = allDayTargetHeight;
+            allDayLastSeconds = clock.Elapsed.TotalSeconds;
+            allDayAnimating = false;
+            return;
+        }
+
+        float diff = allDayTargetHeight - allDayHeight;
+        double now = clock.Elapsed.TotalSeconds;
+        double dt = Math.Clamp(now - allDayLastSeconds, 1e-3, 0.05);
+        allDayLastSeconds = now;
+
+        if (Math.Abs(diff) < 0.5f)
+        {
+            allDayHeight = allDayTargetHeight;
+            allDayAnimating = false;
+            return;
+        }
+
+        allDayHeight += diff * (float)(1.0 - Math.Exp(-dt / AllDayResizeTau));
+        allDayAnimating = true;
+        BeginRenderLoop();
     }
 
     // The all-day panel between the header and the grid. Painted live (not into the strip picture)

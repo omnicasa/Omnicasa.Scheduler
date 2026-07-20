@@ -37,6 +37,34 @@ public readonly struct InfiniteScheduleBlock
     public IScheduleItem? Item { get; init; }
 }
 
+/// <summary>
+/// One all-day / multi-day bar laid out in the all-day panel between the header and the time grid.
+/// Carried by <see cref="InfiniteScheduleRenderer.DrawAllDayBar"/>.
+/// </summary>
+public readonly struct InfiniteAllDayBlock
+{
+    /// <summary>Rectangle the bar occupies, in canvas logical units (already clipped to the panel).</summary>
+    public SKRect Rect { get; init; }
+
+    /// <summary>Resolved bar color (item color, else theme accent).</summary>
+    public SKColor Color { get; init; }
+
+    /// <summary>Active theme (colors + font sizes).</summary>
+    public ScheduleViewTheme Theme { get; init; }
+
+    /// <summary>Bar title, if any.</summary>
+    public string? Title { get; init; }
+
+    /// <summary>True when the item continues before the leftmost visible day.</summary>
+    public bool ContinuesLeft { get; init; }
+
+    /// <summary>True when the item continues past the rightmost visible day.</summary>
+    public bool ContinuesRight { get; init; }
+
+    /// <summary>The underlying appointment.</summary>
+    public IScheduleItem? Item { get; init; }
+}
+
 /// <summary>One visible day laid out in the header band. Carried by <see cref="InfiniteScheduleHeaderContext"/>.</summary>
 public readonly struct InfiniteScheduleHeaderDay
 {
@@ -140,6 +168,42 @@ public class InfiniteScheduleRenderer
             canvas.DrawText(range, rect.Left + 8, rect.Top + titleBoxH + 2 + rangeSize, SKTextAlign.Left, rangeFont, rangePaint);
         }
 
+        canvas.Restore();
+    }
+
+    /// <summary>
+    /// Draws one bar in the all-day panel. Default is a solid pill in the item color with the title
+    /// knocked out in white; a bar that runs past the visible range loses its rounding on that side.
+    /// Override to restyle all-day bars (the canvas is already clipped to the panel).
+    /// </summary>
+    /// <param name="canvas">Target GPU canvas (drawing in logical units).</param>
+    /// <param name="block">Bar geometry, color, title, and theme.</param>
+    public virtual void DrawAllDayBar(SKCanvas canvas, InfiniteAllDayBlock block)
+    {
+        var rect = block.Rect;
+        float titleSize = (float)block.Theme.BlockRangeFontSize;
+
+        // Push the rounding outside the clip on a side that continues, so the bar reads as unbroken.
+        var pill = new SKRect(
+            block.ContinuesLeft ? rect.Left - 8 : rect.Left,
+            rect.Top,
+            block.ContinuesRight ? rect.Right + 8 : rect.Right,
+            rect.Bottom);
+
+        using var fill = new SKPaint { Color = block.Color, IsAntialias = true, Style = SKPaintStyle.Fill };
+        canvas.DrawRoundRect(pill, 4, 4, fill);
+
+        if (string.IsNullOrEmpty(block.Title))
+        {
+            return;
+        }
+
+        canvas.Save();
+        canvas.ClipRect(rect);
+        using var textPaint = new SKPaint { Color = SKColors.White, IsAntialias = true };
+        using var font = new SKFont(BoldTypeface, titleSize);
+        float baseline = rect.MidY + (titleSize * 0.36f);
+        canvas.DrawText(block.Title, rect.Left + 6, baseline, SKTextAlign.Left, font, textPaint);
         canvas.Restore();
     }
 

@@ -42,8 +42,8 @@ public sealed class ScheduleVisibleRangeChangedEventArgs : EventArgs
 ///
 /// <para>Wired: body grid, day/person header, hour rail, event blocks, tap/long-press, momentum
 /// scroll with day snap, typing &amp; holding drags, per-person sub-columns, custom
-/// <see cref="SkiaRenderer"/>, and two-finger pinch-to-zoom (HourHeight). Not yet: all-day bars,
-/// the quick-action menu, and Linked/None header modes.</para>
+/// <see cref="SkiaRenderer"/>, two-finger pinch-to-zoom (HourHeight), and the all-day panel
+/// (<see cref="ShowAllDay"/>). Not yet: the quick-action menu and Linked/None header modes.</para>
 /// </summary>
 public sealed class InfiniteScheduleView : ContentView
 {
@@ -74,6 +74,12 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Duration (s) of the typing draft's pop-in animation.</summary>
     private const double TypingAppearDuration = 0.18;
 
+    /// <summary>Height (logical px) of one lane in the all-day panel (matches <see cref="ScheduleView"/>).</summary>
+    private const float AllDayLaneHeight = 22f;
+
+    /// <summary>Breathing room below the last all-day lane before the time grid starts.</summary>
+    private const float AllDayPanelPadding = 6f;
+
     /// <summary>Bindable property for <see cref="ItemsSource"/>.</summary>
     public static readonly BindableProperty ItemsSourceProperty =
         BindableProperty.Create(
@@ -92,6 +98,15 @@ public sealed class InfiniteScheduleView : ContentView
             1,
             propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLayoutChanged(),
             coerceValue: (_, v) => Math.Clamp((int)v, 1, 7));
+
+    /// <summary>Bindable property for <see cref="ShowAllDay"/>.</summary>
+    public static readonly BindableProperty ShowAllDayProperty =
+        BindableProperty.Create(
+            nameof(ShowAllDay),
+            typeof(bool),
+            typeof(InfiniteScheduleView),
+            true,
+            propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnDataChanged());
 
     /// <summary>Bindable property for <see cref="HourHeight"/>.</summary>
     public static readonly BindableProperty HourHeightProperty =
@@ -278,6 +293,9 @@ public sealed class InfiniteScheduleView : ContentView
     // Item hit rectangles in strip-local content coordinates, rebuilt with the strip.
     private readonly List<(IScheduleItem Item, SKRect Rect)> hitMap = new List<(IScheduleItem, SKRect)>();
 
+    // All-day bar hit rectangles in view coordinates; the panel is painted live, not into the strip.
+    private readonly List<(IScheduleItem Item, SKRect Rect)> allDayHitMap = new List<(IScheduleItem, SKRect)>();
+
     // Active touch points by id, so two-finger pinch-to-zoom can be tracked.
     private readonly Dictionary<long, Point> touches = new Dictionary<long, Point>();
 
@@ -312,6 +330,11 @@ public sealed class InfiniteScheduleView : ContentView
     private int stripStartDay;
 
     private int stripDayCount;
+
+    // All-day bars for the recorded strip's day range, plus the panel height they imply.
+    private IReadOnlyList<AllDayBar> allDayBars = Array.Empty<AllDayBar>();
+
+    private float allDayHeight;
 
     private bool stripDirty = true;
 
@@ -490,6 +513,16 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(ViewModeProperty, value);
     }
 
+    /// <summary>
+    /// Shows the all-day panel above the time grid for all-day and multi-day items. When off those
+    /// items are not drawn at all, since the time grid deliberately excludes them.
+    /// </summary>
+    public bool ShowAllDay
+    {
+        get => (bool)GetValue(ShowAllDayProperty);
+        set => SetValue(ShowAllDayProperty, value);
+    }
+
     /// <summary>Vertical size of one hour, in logical pixels.</summary>
     public double HourHeight
     {
@@ -632,6 +665,9 @@ public sealed class InfiniteScheduleView : ContentView
 
     private float HeaderHeight => (float)ActiveTheme.HeaderHeight;
 
+    // Top of the time grid: below the header, and below the all-day panel when it has lanes.
+    private float BodyTop => HeaderHeight + allDayHeight;
+
     private int PersonCount => Persons is { Count: > 0 } p ? p.Count : 1;
 
     private InfiniteScheduleRenderer ActiveRenderer => SkiaRenderer ?? InfiniteScheduleRenderer.Default;
@@ -668,9 +704,9 @@ public sealed class InfiniteScheduleView : ContentView
     internal (IScheduleItem Item, RectF Rect)? HitTestMenuItem(PointF viewPoint)
     {
         float localX = viewPoint.X - RailWidth + (float)horizontalOffset - (stripStartDay * dayWidth);
-        float localY = viewPoint.Y - HeaderHeight + (float)scrollY;
+        float localY = viewPoint.Y - BodyTop + (float)scrollY;
         float offsetX = RailWidth - (float)horizontalOffset + (stripStartDay * dayWidth);
-        float offsetY = HeaderHeight - (float)scrollY;
+        float offsetY = BodyTop - (float)scrollY;
 
         foreach (var (item, rect) in hitMap)
         {
@@ -897,7 +933,13 @@ public sealed class InfiniteScheduleView : ContentView
         float railWidth = RailWidth;
         float headerHeight = HeaderHeight;
         float bodyWidth = logicalW - railWidth;
-        float bodyHeight = logicalH - headerHeight;
+
+        // Record first: the strip re-layout is what sizes the all-day panel, and the panel eats
+        // into the body's height.
+        EnsureStrip(bodyWidth, timeScale);
+
+        float bodyTop = BodyTop;
+        float bodyHeight = logicalH - bodyTop;
 
         if (double.IsNaN(scrollY))
         {
@@ -910,18 +952,18 @@ public sealed class InfiniteScheduleView : ContentView
 
         skCanvas.Clear(ToSk(theme.Background));
 
-        EnsureStrip(bodyWidth, timeScale);
         ReportVisibleRange(InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth));
+
+        float stripTx = railWidth - (float)horizontalOffset + (stripStartDay * dayWidth);
 
         // Body: replay the recorded day buffer, translated by the owned offset and clipped below the header.
         // While pinching, scale it vertically (cheap) instead of re-recording at the new HourHeight.
         if (strip is not null)
         {
             skCanvas.Save();
-            skCanvas.ClipRect(new SKRect(railWidth, headerHeight, logicalW, logicalH));
-            float tx = railWidth - (float)horizontalOffset + (stripStartDay * dayWidth);
-            float ty = headerHeight - (float)scrollY;
-            skCanvas.Translate(tx, ty);
+            skCanvas.ClipRect(new SKRect(railWidth, bodyTop, logicalW, logicalH));
+            float ty = bodyTop - (float)scrollY;
+            skCanvas.Translate(stripTx, ty);
 
             float vScale = stripHourHeight > 0 ? (float)(EffectiveHourHeight / stripHourHeight) : 1f;
             if (Math.Abs(vScale - 1f) > 0.001f)
@@ -934,9 +976,10 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         overlayNeedsFrame = false;
-        DrawOverlays(skCanvas, railWidth, headerHeight, logicalW, logicalH);
-        DrawHourRail(skCanvas, timeScale, railWidth, headerHeight, logicalH);
-        DrawNowMarker(skCanvas, timeScale, railWidth, headerHeight, logicalW, logicalH, bodyWidth);
+        DrawOverlays(skCanvas, railWidth, bodyTop, logicalW, logicalH);
+        DrawHourRail(skCanvas, timeScale, railWidth, bodyTop, logicalH);
+        DrawNowMarker(skCanvas, timeScale, railWidth, bodyTop, logicalW, logicalH, bodyWidth);
+        DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, stripTx);
         DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
 
         // The pop-in runs on the render loop; drop back to on-demand painting once it (and any
@@ -991,6 +1034,10 @@ public sealed class InfiniteScheduleView : ContentView
             }
         }
 
+        // All-day/multi-day items are excluded from the columns below, so they only exist in the panel.
+        // Laid out over the whole strip (not just the visible window) to keep the panel height steady while panning.
+        BuildAllDayBars(stripItems, DateOnly.FromDateTime(start));
+
         var columns = ScheduleColumnBuilder.Build(
             start,
             end,
@@ -1018,6 +1065,97 @@ public sealed class InfiniteScheduleView : ContentView
 
         strip?.Dispose();
         strip = recorder.EndRecording();
+    }
+
+    private void BuildAllDayBars(List<IScheduleItem> stripItems, DateOnly rangeStart)
+    {
+        if (!ShowAllDay)
+        {
+            allDayBars = Array.Empty<AllDayBar>();
+            allDayHeight = 0f;
+            return;
+        }
+
+        var spanning = new List<IScheduleItem>();
+        foreach (var item in stripItems)
+        {
+            if (AllDayLayout.IsSpanning(item))
+            {
+                spanning.Add(item);
+            }
+        }
+
+        allDayBars = AllDayLayout.Layout(spanning, rangeStart, stripDayCount);
+
+        int lanes = 0;
+        foreach (var bar in allDayBars)
+        {
+            lanes = Math.Max(lanes, bar.Lane + 1);
+        }
+
+        allDayHeight = lanes > 0 ? (lanes * AllDayLaneHeight) + AllDayPanelPadding : 0f;
+    }
+
+    // The all-day panel between the header and the grid. Painted live (not into the strip picture)
+    // so it can pin to the viewport's top while the body scrolls vertically underneath it.
+    private void DrawAllDayBand(SKCanvas skCanvas, float railWidth, float top, float logicalW, float tx)
+    {
+        allDayHitMap.Clear();
+        if (allDayHeight <= 0)
+        {
+            return;
+        }
+
+        var theme = ActiveTheme;
+        var renderer = ActiveRenderer;
+        var stripStart = DateOnly.FromDateTime(AnchorDay.Date.AddDays(stripStartDay));
+        float bottom = top + allDayHeight;
+
+        using (var bg = new SKPaint { Color = ToSk(theme.Background), Style = SKPaintStyle.Fill })
+        {
+            skCanvas.DrawRect(new SKRect(0, top, logicalW, bottom), bg);
+        }
+
+        using (var line = new SKPaint { Color = ToSk(theme.GridLine), StrokeWidth = 1, IsAntialias = false })
+        {
+            skCanvas.DrawLine(0, bottom - 0.5f, logicalW, bottom - 0.5f, line);
+        }
+
+        skCanvas.Save();
+        skCanvas.ClipRect(new SKRect(railWidth, top, logicalW, bottom));
+
+        foreach (var bar in allDayBars)
+        {
+            float left = tx + (bar.StartDay * dayWidth) + 2f;
+            float right = tx + ((bar.EndDay + 1) * dayWidth) - 2f;
+            if (right < railWidth || left > logicalW)
+            {
+                continue;
+            }
+
+            float y = top + (bar.Lane * AllDayLaneHeight) + 2f;
+            var rect = new SKRect(left, y, right, y + AllDayLaneHeight - 4f);
+
+            renderer.DrawAllDayBar(skCanvas, new InfiniteAllDayBlock
+            {
+                Rect = rect,
+                Color = ToSk(bar.Item.Color ?? theme.Accent),
+                Theme = theme,
+                Title = bar.Item.Title,
+                ContinuesLeft = DateOnly.FromDateTime(bar.Item.Start) < stripStart.AddDays(bar.StartDay),
+                ContinuesRight = AllDayLayout.EndDateOf(bar.Item) > stripStart.AddDays(bar.EndDay),
+                Item = bar.Item,
+            });
+
+            allDayHitMap.Add((bar.Item, rect));
+        }
+
+        skCanvas.Restore();
+
+        // Rail label, drawn after the clip so it can sit left of the day columns.
+        using var text = new SKPaint { Color = ToSk(theme.Muted), IsAntialias = true };
+        using var font = new SKFont { Size = (float)theme.HourLabelFontSize };
+        skCanvas.DrawText("all-day", railWidth - 6, top + AllDayLaneHeight - 5f, SKTextAlign.Right, font, text);
     }
 
     private void DrawGrid(SKCanvas rc, TimeScale timeScale, int columnCount, float columnWidth, float height)
@@ -1384,7 +1522,7 @@ public sealed class InfiniteScheduleView : ContentView
 
         double midY = (a.Y + b.Y) / 2.0;
         var timeScale = BuildTimeScale();
-        double contentY = scrollY + (midY - HeaderHeight);
+        double contentY = scrollY + (midY - BodyTop);
         pinchAnchorHours = (contentY - timeScale.TopPadding) / Math.Max(1.0, HourHeight);
         BeginRenderLoop();
     }
@@ -1405,7 +1543,7 @@ public sealed class InfiniteScheduleView : ContentView
 
         var timeScale = BuildTimeScale();
         double contentY = timeScale.TopPadding + (pinchAnchorHours * newHourHeight);
-        scrollY = ClampVerticalToView(contentY - (midY - HeaderHeight));
+        scrollY = ClampVerticalToView(contentY - (midY - BodyTop));
         Invalidate();
     }
 
@@ -1894,8 +2032,8 @@ public sealed class InfiniteScheduleView : ContentView
         var dayEnd = day.AddDays(1);
         var clipStart = start < day ? day : start;
         var clipEnd = end > dayEnd ? dayEnd : end;
-        float top = (float)(HeaderHeight - scrollY) + timeScale.YForTime(clipStart - day);
-        float bottom = (float)(HeaderHeight - scrollY) + timeScale.YForTime(clipEnd - day);
+        float top = (float)(BodyTop - scrollY) + timeScale.YForTime(clipStart - day);
+        float bottom = (float)(BodyTop - scrollY) + timeScale.YForTime(clipEnd - day);
         float w = (PersonCount > 1 ? columnWidth : dayWidth) - 4;
 
         return new SKRect(screenX + 2, top, screenX + 2 + w, Math.Max(bottom, top + 20));
@@ -2009,7 +2147,7 @@ public sealed class InfiniteScheduleView : ContentView
 
     private double ClampVerticalToView(double offset)
     {
-        float bodyHeight = (float)Height - HeaderHeight;
+        float bodyHeight = (float)Height - BodyTop;
         return ClampVertical(offset, bodyHeight, BuildTimeScale());
     }
 
@@ -2098,22 +2236,30 @@ public sealed class InfiniteScheduleView : ContentView
     // Resolves a screen point to an item (or empty date/time) and raises the matching event.
     private void DispatchTap(Point screen, bool longPress)
     {
+        // The all-day panel is painted in view space, so test it against the raw point.
+        foreach (var (item, rect) in allDayHitMap)
+        {
+            if (rect.Contains((float)screen.X, (float)screen.Y))
+            {
+                RaiseTap(item, longPress);
+                return;
+            }
+        }
+
         float localX = (float)(screen.X - RailWidth + horizontalOffset - (stripStartDay * dayWidth));
-        float localY = (float)(screen.Y - HeaderHeight + scrollY);
+        float localY = (float)(screen.Y - BodyTop + scrollY);
+
+        // A tap in the panel's empty space belongs to no time slot; swallow it.
+        if (screen.Y < BodyTop)
+        {
+            return;
+        }
 
         foreach (var (item, rect) in hitMap)
         {
             if (rect.Contains(localX, localY))
             {
-                if (longPress)
-                {
-                    ItemLongTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
-                }
-                else
-                {
-                    ItemTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
-                }
-
+                RaiseTap(item, longPress);
                 return;
             }
         }
@@ -2138,6 +2284,18 @@ public sealed class InfiniteScheduleView : ContentView
         else
         {
             Tapped?.Invoke(this, new ScheduleTappedEventArgs(when, personId));
+        }
+    }
+
+    private void RaiseTap(IScheduleItem item, bool longPress)
+    {
+        if (longPress)
+        {
+            ItemLongTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
+        }
+        else
+        {
+            ItemTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
         }
     }
 }

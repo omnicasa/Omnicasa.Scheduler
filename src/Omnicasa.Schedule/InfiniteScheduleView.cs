@@ -331,10 +331,17 @@ public sealed class InfiniteScheduleView : ContentView
 
     private int stripDayCount;
 
-    // All-day bars for the recorded strip's day range, plus the panel height they imply.
+    // All-day bars for the visible day range, plus the panel height they imply. Cached on the
+    // window they were laid out for so panning doesn't re-pack them every frame.
     private IReadOnlyList<AllDayBar> allDayBars = Array.Empty<AllDayBar>();
 
     private float allDayHeight;
+
+    private int allDayFirstDay = int.MinValue;
+
+    private int allDayDayCount;
+
+    private bool allDayDirty = true;
 
     private bool stripDirty = true;
 
@@ -869,6 +876,7 @@ public sealed class InfiniteScheduleView : ContentView
             : ItemsSource.OfType<IScheduleItem>().ToList();
         RebuildItemIndex();
         stripDirty = true;
+        allDayDirty = true;
         Invalidate();
     }
 
@@ -897,6 +905,7 @@ public sealed class InfiniteScheduleView : ContentView
         float body = (float)Width - RailWidth;
         dayWidth = body > 0 ? body / Math.Max(1, ViewMode) : 0;
         stripDirty = true;
+        allDayDirty = true;
         Invalidate();
     }
 
@@ -934,9 +943,9 @@ public sealed class InfiniteScheduleView : ContentView
         float headerHeight = HeaderHeight;
         float bodyWidth = logicalW - railWidth;
 
-        // Record first: the strip re-layout is what sizes the all-day panel, and the panel eats
-        // into the body's height.
+        // Size the all-day panel first: it eats into the body's height.
         EnsureStrip(bodyWidth, timeScale);
+        EnsureAllDayBars(bodyWidth);
 
         float bodyTop = BodyTop;
         float bodyHeight = logicalH - bodyTop;
@@ -979,7 +988,10 @@ public sealed class InfiniteScheduleView : ContentView
         DrawOverlays(skCanvas, railWidth, bodyTop, logicalW, logicalH);
         DrawHourRail(skCanvas, timeScale, railWidth, bodyTop, logicalH);
         DrawNowMarker(skCanvas, timeScale, railWidth, bodyTop, logicalW, logicalH, bodyWidth);
-        DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, stripTx);
+
+        // Bars are laid out from the first visible day, so they need their own origin, not the strip's.
+        float allDayTx = railWidth - (float)horizontalOffset + (allDayFirstDay * dayWidth);
+        DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, allDayTx);
         DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
 
         // The pop-in runs on the render loop; drop back to on-demand painting once it (and any
@@ -1034,10 +1046,6 @@ public sealed class InfiniteScheduleView : ContentView
             }
         }
 
-        // All-day/multi-day items are excluded from the columns below, so they only exist in the panel.
-        // Laid out over the whole strip (not just the visible window) to keep the panel height steady while panning.
-        BuildAllDayBars(stripItems, DateOnly.FromDateTime(start));
-
         var columns = ScheduleColumnBuilder.Build(
             start,
             end,
@@ -1067,7 +1075,10 @@ public sealed class InfiniteScheduleView : ContentView
         strip = recorder.EndRecording();
     }
 
-    private void BuildAllDayBars(List<IScheduleItem> stripItems, DateOnly rangeStart)
+    // Lays the all-day bars out over the *visible* days only, so the panel costs no height on days
+    // that have nothing in it — a bar buffered off-screen must not reserve a lane. Recomputed only
+    // when the visible window or the data changes, since this runs on the paint path.
+    private void EnsureAllDayBars(float bodyWidth)
     {
         if (!ShowAllDay)
         {
@@ -1076,16 +1087,37 @@ public sealed class InfiniteScheduleView : ContentView
             return;
         }
 
-        var spanning = new List<IScheduleItem>();
-        foreach (var item in stripItems)
+        int firstDay = InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth);
+        int dayCount = Math.Max(1, InfiniteScheduleGeometry.VisibleDayCount(bodyWidth, dayWidth));
+        if (!allDayDirty && firstDay == allDayFirstDay && dayCount == allDayDayCount)
         {
-            if (AllDayLayout.IsSpanning(item))
+            return;
+        }
+
+        allDayDirty = false;
+        allDayFirstDay = firstDay;
+        allDayDayCount = dayCount;
+
+        var rangeStart = DateOnly.FromDateTime(AnchorDay.Date.AddDays(firstDay));
+        var spanning = new List<IScheduleItem>();
+        var seen = new HashSet<IScheduleItem>();
+        for (int d = 0; d < dayCount; d++)
+        {
+            if (!itemsByDay.TryGetValue(rangeStart.AddDays(d), out var dayList))
             {
-                spanning.Add(item);
+                continue;
+            }
+
+            foreach (var item in dayList)
+            {
+                if (AllDayLayout.IsSpanning(item) && seen.Add(item))
+                {
+                    spanning.Add(item);
+                }
             }
         }
 
-        allDayBars = AllDayLayout.Layout(spanning, rangeStart, stripDayCount);
+        allDayBars = AllDayLayout.Layout(spanning, rangeStart, dayCount);
 
         int lanes = 0;
         foreach (var bar in allDayBars)
@@ -1108,7 +1140,7 @@ public sealed class InfiniteScheduleView : ContentView
 
         var theme = ActiveTheme;
         var renderer = ActiveRenderer;
-        var stripStart = DateOnly.FromDateTime(AnchorDay.Date.AddDays(stripStartDay));
+        var rangeStart = DateOnly.FromDateTime(AnchorDay.Date.AddDays(allDayFirstDay));
         float bottom = top + allDayHeight;
 
         using (var bg = new SKPaint { Color = ToSk(theme.Background), Style = SKPaintStyle.Fill })
@@ -1142,8 +1174,8 @@ public sealed class InfiniteScheduleView : ContentView
                 Color = ToSk(bar.Item.Color ?? theme.Accent),
                 Theme = theme,
                 Title = bar.Item.Title,
-                ContinuesLeft = DateOnly.FromDateTime(bar.Item.Start) < stripStart.AddDays(bar.StartDay),
-                ContinuesRight = AllDayLayout.EndDateOf(bar.Item) > stripStart.AddDays(bar.EndDay),
+                ContinuesLeft = DateOnly.FromDateTime(bar.Item.Start) < rangeStart.AddDays(bar.StartDay),
+                ContinuesRight = AllDayLayout.EndDateOf(bar.Item) > rangeStart.AddDays(bar.EndDay),
                 Item = bar.Item,
             });
 

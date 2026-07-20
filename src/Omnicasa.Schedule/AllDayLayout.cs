@@ -109,9 +109,13 @@ public static class AllDayLayout
         return bars;
     }
 
-    // The last calendar day an item occupies. An event ending exactly at midnight is treated as
-    // ending the previous day (so [day1 00:00, day2 00:00) spans only day1).
-    private static DateOnly EndDateOf(IScheduleItem item)
+    /// <summary>
+    /// The last calendar day an item occupies. An event ending exactly at midnight is treated as
+    /// ending the previous day (so <c>[day1 00:00, day2 00:00)</c> spans only day1).
+    /// </summary>
+    /// <param name="item">The item to measure.</param>
+    /// <returns>The inclusive last date the item covers.</returns>
+    public static DateOnly EndDateOf(IScheduleItem item)
     {
         var endDate = DateOnly.FromDateTime(item.End);
         if (item.End.TimeOfDay == TimeSpan.Zero && item.End > item.Start)

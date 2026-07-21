@@ -843,7 +843,23 @@ public sealed class InfiniteScheduleView : ContentView
         CurrentDay = firstDate;
         suppressCurrentDaySync = false;
 
-        VisibleRangeChanged?.Invoke(this, new ScheduleVisibleRangeChangedEventArgs(firstDate, lastDate));
+        // Scroll/paint can run off the UI thread, and handlers routinely touch UI (page Title, labels),
+        // so marshal the event or they crash with CalledFromWrongThreadException.
+        var handler = VisibleRangeChanged;
+        if (handler is null)
+        {
+            return;
+        }
+
+        var args = new ScheduleVisibleRangeChangedEventArgs(firstDate, lastDate);
+        if (Dispatcher.IsDispatchRequired)
+        {
+            Dispatcher.Dispatch(() => handler(this, args));
+        }
+        else
+        {
+            handler(this, args);
+        }
     }
 
     private void OnCurrentDayChanged(DateTime value)

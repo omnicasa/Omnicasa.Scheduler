@@ -30,49 +30,188 @@ internal static class QuickActionMenu
 #endif
 
 #if ANDROID
-    /// <summary>Shows a native PopupMenu anchored to the body view; invokes the callback with the chosen label.</summary>
+    /// <summary>Shows a native PopupMenu at the press point; invokes the callback with the chosen label.</summary>
     public static bool ShowAndroid(View canvas, PointF location, IReadOnlyList<ScheduleMenuAction> actions, Action<string> onInvoke)
     {
-        _ = location;
-        if (canvas.Handler?.PlatformView is not Android.Views.View anchor || anchor.Context is null)
+        if (canvas.Handler?.PlatformView is not Android.Views.View canvasView || canvasView.Context is null)
         {
             return false;
         }
 
-        var context = anchor.Context;
-        var popup = new Android.Widget.PopupMenu(context, anchor);
+        var context = canvasView.Context;
+
+        // PopupMenu can only align to its anchor's bounds, and the anchor here is the whole canvas —
+        // that's what parked the menu in the corner. ListPopupWindow takes explicit offsets, so it
+        // can land at the finger like the iOS context menu, anchored to the canvas we already have.
+        // Scale comes from the canvas itself (platform pixels per MAUI unit), not DisplayMetrics —
+        // the two callers hand us points in their own canvas space, which isn't always display density.
+        float scale = canvas.Width > 0
+            ? (float)(canvasView.Width / canvas.Width)
+            : context.Resources?.DisplayMetrics?.Density ?? 1f;
+        int x = (int)(location.X * scale);
+        int y = (int)(location.Y * scale);
+
+        var popup = new Android.Widget.ListPopupWindow(context)
+        {
+            AnchorView = canvasView,
+            Modal = true,
+
+            // Vertical offset is measured from the anchor's bottom edge, so pull back by its height.
+            HorizontalOffset = x,
+            VerticalOffset = y - canvasView.Height,
+        };
+
+        float density = context.Resources?.DisplayMetrics?.Density ?? 1f;
+        var icons = new int[actions.Count];
         bool anyIcon = false;
         for (int i = 0; i < actions.Count; i++)
         {
-            var menuItem = popup.Menu?.Add(Android.Views.IMenu.None, i, i, new Java.Lang.String(actions[i].Label));
-            var icon = actions[i].Icon;
-            if (menuItem is not null && !string.IsNullOrEmpty(icon) && context.Resources is not null && context.PackageName is not null)
-            {
-                int resId = context.Resources.GetIdentifier(icon, "drawable", context.PackageName);
-                if (resId != 0)
-                {
-                    menuItem.SetIcon(resId);
-                    anyIcon = true;
-                }
-            }
+            icons[i] = ResolveIcon(context, actions[i].Icon);
+            anyIcon |= icons[i] != 0;
         }
 
-        // PopupMenu hides icons by default; force them on when any action supplied one (API 29+).
-        if (anyIcon && OperatingSystem.IsAndroidVersionAtLeast(29))
-        {
-            popup.SetForceShowIcon(true);
-        }
+        popup.SetAdapter(new MenuAdapter(context, actions, icons, anyIcon, density));
 
-        popup.MenuItemClick += (_, e) =>
+        // Width has to be measured up front: ListPopupWindow won't size itself to its content.
+        popup.Width = MeasureWidth(context, actions, anyIcon, density);
+
+        popup.ItemClick += (_, e) =>
         {
-            int id = e.Item?.ItemId ?? -1;
-            if (id >= 0 && id < actions.Count)
+            if (e.Position >= 0 && e.Position < actions.Count)
             {
-                onInvoke(actions[id].Label);
+                onInvoke(actions[e.Position].Label);
             }
+
+            popup.Dismiss();
         };
+
         popup.Show();
         return true;
+    }
+
+    // Widest label plus padding, clamped so a long title can't run off screen.
+    private static int MeasureWidth(Android.Content.Context context, IReadOnlyList<ScheduleMenuAction> actions, bool anyIcon, float density)
+    {
+        var paint = new Android.Text.TextPaint { TextSize = 16 * density };
+        float widest = 0;
+        foreach (var action in actions)
+        {
+            widest = Math.Max(widest, paint.MeasureText(action.Label));
+        }
+
+        int padding = (int)((anyIcon ? 88 : 48) * density);
+        int max = context.Resources?.DisplayMetrics?.WidthPixels ?? (int)(320 * density);
+        return Math.Min((int)widest + padding, (int)(max * 0.8));
+    }
+
+    // App drawable first, then Android's stock set; SF Symbol names get aliased so one Icon
+    // string can serve both platforms.
+    private static int ResolveIcon(Android.Content.Context context, string? name)
+    {
+        if (string.IsNullOrEmpty(name) || context.Resources is null)
+        {
+            return 0;
+        }
+
+        int id = context.PackageName is null ? 0 : context.Resources.GetIdentifier(name, "drawable", context.PackageName);
+        if (id == 0)
+        {
+            id = context.Resources.GetIdentifier(name, "drawable", "android");
+        }
+
+        if (id != 0)
+        {
+            return id;
+        }
+
+        string? alias = name switch
+        {
+            "pencil" or "square.and.pencil" => "ic_menu_edit",
+            "trash" => "ic_menu_delete",
+            "doc.on.doc" => "ic_menu_save",
+            "arrow.up.and.down.and.arrow.left.and.right" => "ic_menu_directions",
+            "info.circle" => "ic_menu_info_details",
+            "calendar" => "ic_menu_my_calendar",
+            "square.and.arrow.up" => "ic_menu_share",
+            "magnifyingglass" => "ic_menu_search",
+            _ => null,
+        };
+
+        return alias is null ? 0 : context.Resources.GetIdentifier(alias, "drawable", "android");
+    }
+
+    /// <summary>Rows of icon + label, since ListPopupWindow has no icon-aware stock layout.</summary>
+    private sealed class MenuAdapter : Android.Widget.BaseAdapter
+    {
+        private static readonly Android.Graphics.Color DestructiveColor = Android.Graphics.Color.Argb(255, 211, 47, 47);
+
+        private readonly Android.Content.Context context;
+        private readonly IReadOnlyList<ScheduleMenuAction> actions;
+        private readonly int[] icons;
+        private readonly bool anyIcon;
+        private readonly float density;
+
+        public MenuAdapter(Android.Content.Context context, IReadOnlyList<ScheduleMenuAction> actions, int[] icons, bool anyIcon, float density)
+        {
+            this.context = context;
+            this.actions = actions;
+            this.icons = icons;
+            this.anyIcon = anyIcon;
+            this.density = density;
+        }
+
+        public override int Count => actions.Count;
+
+        public override Java.Lang.Object? GetItem(int position) => null;
+
+        public override long GetItemId(int position) => position;
+
+        public override Android.Views.View GetView(int position, Android.Views.View? convertView, Android.Views.ViewGroup? parent)
+        {
+            var action = actions[position];
+            var row = new Android.Widget.LinearLayout(context)
+            {
+                Orientation = Android.Widget.Orientation.Horizontal,
+                LayoutParameters = new Android.Widget.AbsListView.LayoutParams(
+                    Android.Views.ViewGroup.LayoutParams.MatchParent,
+                    (int)(48 * density)),
+            };
+            row.SetGravity(Android.Views.GravityFlags.CenterVertical);
+            row.SetPadding((int)(16 * density), 0, (int)(16 * density), 0);
+
+            if (anyIcon)
+            {
+                var image = new Android.Widget.ImageView(context)
+                {
+                    LayoutParameters = new Android.Widget.LinearLayout.LayoutParams((int)(24 * density), (int)(24 * density))
+                    {
+                        RightMargin = (int)(16 * density),
+                    },
+                };
+
+                if (icons[position] != 0)
+                {
+                    image.SetImageResource(icons[position]);
+                    if (action.IsDestructive)
+                    {
+                        image.SetColorFilter(DestructiveColor);
+                    }
+                }
+
+                row.AddView(image);
+            }
+
+            var text = new Android.Widget.TextView(context) { Text = action.Label, TextSize = 16 };
+            text.SetSingleLine(true);
+            text.Ellipsize = Android.Text.TextUtils.TruncateAt.End;
+            if (action.IsDestructive)
+            {
+                text.SetTextColor(DestructiveColor);
+            }
+
+            row.AddView(text);
+            return row;
+        }
     }
 #endif
 }

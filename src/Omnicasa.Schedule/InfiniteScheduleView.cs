@@ -350,6 +350,10 @@ public sealed class InfiniteScheduleView : ContentView
 
     private bool allDaySettled;
 
+    // horizontalOffset seen at the last height step, so the panel ease can pause while the day axis
+    // is moving (easing it mid-swipe reflows the grid and stutters the scroll).
+    private double allDayPrevHorizontal;
+
     private int allDayFirstDay = int.MinValue;
 
     private int allDayDayCount;
@@ -1168,11 +1172,37 @@ public sealed class InfiniteScheduleView : ContentView
             allDaySettled = true;
             allDayHeight = allDayTargetHeight;
             allDayLastSeconds = clock.Elapsed.TotalSeconds;
+            allDayPrevHorizontal = horizontalOffset;
             allDayAnimating = false;
             return;
         }
 
         float diff = allDayTargetHeight - allDayHeight;
+
+        // While the day axis is moving (horizontal pan / fling / page settle), hold the panel height
+        // steady. Easing it mid-swipe moves BodyTop every frame, reflowing the whole grid under the
+        // horizontal motion — that is the "flick, stop a tick" stutter. Defer the resize until the
+        // horizontal scroll settles; ~0.5px/frame ≈ FlingStopSpeed, so this releases the moment it stops.
+        bool horizontalMoving = Math.Abs(horizontalOffset - allDayPrevHorizontal) > 0.5;
+        allDayPrevHorizontal = horizontalOffset;
+
+        if (horizontalMoving)
+        {
+            // Don't accumulate the paused interval into the next ease step.
+            allDayLastSeconds = clock.Elapsed.TotalSeconds;
+
+            // Keep a frame pending if a resize is owed, so the ease still runs once the axis stops —
+            // the render loop can otherwise switch off on the fling's final frame and leave the panel
+            // short of its target.
+            allDayAnimating = Math.Abs(diff) >= 0.5f;
+            if (allDayAnimating)
+            {
+                BeginRenderLoop();
+            }
+
+            return;
+        }
+
         double now = clock.Elapsed.TotalSeconds;
         double dt = Math.Clamp(now - allDayLastSeconds, 1e-3, 0.05);
         allDayLastSeconds = now;

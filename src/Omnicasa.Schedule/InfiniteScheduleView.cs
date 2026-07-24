@@ -873,6 +873,10 @@ public sealed class InfiniteScheduleView : ContentView
             return;
         }
 
+        // Cancel any in-flight fling/settle first, or the next StepFling frame overwrites this jump
+        // and a programmatic day change (Today button, date pick) mid-momentum lands on the wrong day.
+        StopMotion();
+
         int dayIndex = (int)(value.Date - AnchorDay.Date).TotalDays;
         horizontalOffset = ClampHorizontal(dayIndex * (double)dayWidth);
         Invalidate();

@@ -21,7 +21,7 @@ public partial class LargeOne : ContentPage
 
         Schedule.ItemsSource = MainPage.Source.AllItems;
 
-        Schedule.ItemTapped += (_, e) => Show($"ItemTapped: {e.Item.Title}");
+        Schedule.ItemTapped += OnItemTapped;
         Schedule.Tapped += (_, e) => Show($"Tapped empty: {e.When:ddd d MMM HH:mm}");
 
         // Long-press empty space → drop a new draft (TypingItem) there; drag to place/size it.
@@ -86,6 +86,20 @@ public partial class LargeOne : ContentPage
             Schedule.RefreshItems();
             Show($"Moved '{e.Item.Title}' to {e.Start:ddd d MMM HH:mm}");
         };
+    }
+
+    // Tap a block → the detail page grows out of that block, and shrinks back into it on close.
+    private async void OnItemTapped(object? sender, ScheduleItemTappedEventArgs e)
+    {
+        Show($"ItemTapped: {e.Item.Title}");
+
+        if (e.ItemRect is not RectF rect)
+        {
+            return;
+        }
+
+        var item = e.Item;
+        await ScheduleZoomNavigation.PushZoomAsync(new AppointmentDetailPage(item), Schedule, rect, item.Color);
     }
 
     private void Show(string message) => Status.Text = message;

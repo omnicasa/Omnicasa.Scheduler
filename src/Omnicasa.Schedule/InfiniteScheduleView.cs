@@ -729,14 +729,12 @@ public sealed class InfiniteScheduleView : ContentView
     {
         float localX = viewPoint.X - RailWidth + (float)horizontalOffset - (stripStartDay * dayWidth);
         float localY = viewPoint.Y - BodyTop + (float)scrollY;
-        float offsetX = RailWidth - (float)horizontalOffset + (stripStartDay * dayWidth);
-        float offsetY = BodyTop - (float)scrollY;
 
         foreach (var (item, rect) in hitMap)
         {
             if (rect.Contains(localX, localY))
             {
-                return (item, new RectF(rect.Left + offsetX, rect.Top + offsetY, rect.Width, rect.Height));
+                return (item, ToViewRect(rect));
             }
         }
 
@@ -797,6 +795,14 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         return start < dayStart ? dayStart : start;
+    }
+
+    // Strip-local content rect → view coordinates, using the live scroll offsets.
+    private RectF ToViewRect(SKRect rect)
+    {
+        float offsetX = RailWidth - (float)horizontalOffset + (stripStartDay * dayWidth);
+        float offsetY = BodyTop - (float)scrollY;
+        return new RectF(rect.Left + offsetX, rect.Top + offsetY, rect.Width, rect.Height);
     }
 
     private TimeScale BuildTimeScale()
@@ -2368,7 +2374,7 @@ public sealed class InfiniteScheduleView : ContentView
         {
             if (rect.Contains((float)screen.X, (float)screen.Y))
             {
-                RaiseTap(item, longPress);
+                RaiseTap(item, longPress, new RectF(rect.Left, rect.Top, rect.Width, rect.Height));
                 return;
             }
         }
@@ -2386,7 +2392,7 @@ public sealed class InfiniteScheduleView : ContentView
         {
             if (rect.Contains(localX, localY))
             {
-                RaiseTap(item, longPress);
+                RaiseTap(item, longPress, ToViewRect(rect));
                 return;
             }
         }
@@ -2414,15 +2420,15 @@ public sealed class InfiniteScheduleView : ContentView
         }
     }
 
-    private void RaiseTap(IScheduleItem item, bool longPress)
+    private void RaiseTap(IScheduleItem item, bool longPress, RectF itemRect)
     {
         if (longPress)
         {
-            ItemLongTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
+            ItemLongTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item, itemRect));
         }
         else
         {
-            ItemTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item));
+            ItemTapped?.Invoke(this, new ScheduleItemTappedEventArgs(item, itemRect));
         }
     }
 }

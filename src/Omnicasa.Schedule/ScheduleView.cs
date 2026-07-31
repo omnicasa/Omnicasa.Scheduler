@@ -11,13 +11,22 @@ public sealed class ScheduleItemTappedEventArgs : EventArgs
 {
     /// <summary>Initializes a new instance of the <see cref="ScheduleItemTappedEventArgs"/> class.</summary>
     /// <param name="item">The tapped item.</param>
-    public ScheduleItemTappedEventArgs(IScheduleItem item)
+    /// <param name="itemRect">The block's rect in the source control's coordinates, when known.</param>
+    public ScheduleItemTappedEventArgs(IScheduleItem item, RectF? itemRect = null)
     {
         Item = item;
+        ItemRect = itemRect;
     }
 
     /// <summary>Gets the tapped item.</summary>
     public IScheduleItem Item { get; }
+
+    /// <summary>
+    /// Gets the tapped block's rect in the source control's coordinates, or null when the control
+    /// doesn't report one. Feed it to <see cref="ScheduleZoomNavigation"/> to grow a detail page out
+    /// of the tapped block. Only <c>InfiniteScheduleView</c> fills this in today.
+    /// </summary>
+    public RectF? ItemRect { get; }
 }
 
 /// <summary>Event payload carrying the date/time of an empty-space tap.</summary>

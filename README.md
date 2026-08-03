@@ -131,6 +131,7 @@ Day.AppointmentSource  = Year.AppointmentSource;
 | `StartDay` / `EndDay` | today / +6 days | Inclusive viewport range. |
 | `ViewMode` | `7` | Max columns shown (1–7); range is capped to this. |
 | `HourHeight` | `60` | Logical pixels per hour; clamped to `[24, 200]`, pinch to zoom. |
+| `StartLockHour` / `EndLockHour` | `0` / `24` | **Working-time lock.** Set e.g. `8` / `18` and the viewport cannot scroll outside 08:00–18:00 — the full 24 hours are still drawn, just unreachable. Drag/resize and tap-to-create clamp to the same window. Ignored when `EndLockHour <= StartLockHour`. |
 | `Persons` | `null` | `IList<IPerson>`; when non-empty each day splits into one column per person. |
 | `TypingItem` | `null` | An `ITypingScheduleItem` draft block — shadowed, draggable, resizable (snaps to grid). |
 | `HoldingSchedule` | `null` | An `IScheduleItem` "held" block — drag to move (free vertical, snap to column) and resize via corner handles. Reports drops via `HoldingDropped`; never mutates the item. |
@@ -169,6 +170,7 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 | `MinDay` / `MaxDay` | `null` | Optional bounds; `null` = unbounded (truly infinite) in that direction. |
 | `ViewMode` | `1` | Day columns visible at once (1–7); sets the day-column width. |
 | `HourHeight` | `60` | Pixels per hour; clamped `[24, 300]`, **two-finger pinch to zoom**. |
+| `StartLockHour` / `EndLockHour` | `0` / `24` | **Working-time lock.** Set e.g. `8` / `18` and the viewport cannot scroll outside 08:00–18:00 — the full 24 hours are still drawn, just unreachable. Drag/resize and tap-to-create clamp to the same window. Ignored when `EndLockHour <= StartLockHour`. |
 | `VerticalOffset` | `0` | Two-way vertical (time) scroll offset. |
 | `Persons` | `null` | `IList<IPerson>`; each day splits into per-person sub-columns (header shows initials + accent). |
 | `TypingItem` | `null` | Draft block — drag to move, corners to resize; pops in on appear. |
@@ -216,6 +218,7 @@ your **day axis** behaves and which stack you can take on.
 | Infinite / unbounded horizontal day scroll | ➖ (fixed range; wrap in a `CarouselView` to page — see `CarouselSchedulePage`) | ✅ (built in; `PagingEnabled`, `CurrentDay`, `VisibleRangeChanged`) |
 | **All-day / cross-date bars** | ✅ | ❌ not yet |
 | **`HeaderMode` `Linked` / `None`** (external glass header via `ScheduleHeaderView`) | ✅ | ❌ `Inhouse` only |
+| **Working-time lock** (`StartLockHour` / `EndLockHour`) | ✅ | ✅ |
 | `HourHeight` range | `[24, 200]` | `[24, 300]` |
 | Default `ViewMode` | `7` (week) | `1` (day) |
 

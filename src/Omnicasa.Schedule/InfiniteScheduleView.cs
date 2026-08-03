@@ -121,6 +121,26 @@ public sealed class InfiniteScheduleView : ContentView
             propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLayoutChanged(),
             coerceValue: (_, v) => Math.Clamp((double)v, 24.0, 300.0));
 
+    /// <summary>Bindable property for <see cref="StartLockHour"/>.</summary>
+    public static readonly BindableProperty StartLockHourProperty =
+        BindableProperty.Create(
+            nameof(StartLockHour),
+            typeof(double),
+            typeof(InfiniteScheduleView),
+            0.0,
+            propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLockWindowChanged(),
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.0, 24.0));
+
+    /// <summary>Bindable property for <see cref="EndLockHour"/>.</summary>
+    public static readonly BindableProperty EndLockHourProperty =
+        BindableProperty.Create(
+            nameof(EndLockHour),
+            typeof(double),
+            typeof(InfiniteScheduleView),
+            24.0,
+            propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLockWindowChanged(),
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.0, 24.0));
+
     /// <summary>Bindable property for <see cref="AnchorDay"/>.</summary>
     public static readonly BindableProperty AnchorDayProperty =
         BindableProperty.Create(
@@ -554,6 +574,27 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(HourHeightProperty, value);
     }
 
+    /// <summary>
+    /// First hour the user may scroll to (working-time lock). The full 24 hours are still drawn;
+    /// the viewport simply cannot move above this line. 0 (the default) means no lock.
+    /// Set together with <see cref="EndLockHour"/> — e.g. 8 and 18 for an 08:00–18:00 working day.
+    /// </summary>
+    public double StartLockHour
+    {
+        get => (double)GetValue(StartLockHourProperty);
+        set => SetValue(StartLockHourProperty, value);
+    }
+
+    /// <summary>
+    /// Last hour the user may scroll to (working-time lock). 24 (the default) means no lock.
+    /// Ignored when it is not greater than <see cref="StartLockHour"/>.
+    /// </summary>
+    public double EndLockHour
+    {
+        get => (double)GetValue(EndLockHourProperty);
+        set => SetValue(EndLockHourProperty, value);
+    }
+
     /// <summary>The day mapped to horizontal offset 0; scrolling is measured relative to it.</summary>
     public DateTime AnchorDay
     {
@@ -750,10 +791,7 @@ public sealed class InfiniteScheduleView : ContentView
         => ItemActionInvoked?.Invoke(this, new ScheduleItemActionEventArgs(item, label));
 
     private static double ClampVertical(double offset, float bodyHeight, TimeScale timeScale)
-    {
-        double max = Math.Max(0, timeScale.TotalHeight - bodyHeight);
-        return Math.Clamp(offset, 0, max);
-    }
+        => timeScale.ClampOffset(offset, bodyHeight);
 
     private static SKColor ToSk(Color? color)
     {
@@ -779,24 +817,6 @@ public sealed class InfiniteScheduleView : ContentView
         return 1f - (x * x * x);
     }
 
-    // Keeps [start, start+duration] within its day.
-    private static DateTime ClampToDay(DateTime start, DateTime day, TimeSpan duration)
-    {
-        var dayStart = day.Date;
-        var dayEnd = dayStart.AddDays(1);
-        if (start < dayStart)
-        {
-            start = dayStart;
-        }
-
-        if (start + duration > dayEnd)
-        {
-            start = dayEnd - duration;
-        }
-
-        return start < dayStart ? dayStart : start;
-    }
-
     // Strip-local content rect → view coordinates, using the live scroll offsets.
     private RectF ToViewRect(SKRect rect)
     {
@@ -806,7 +826,24 @@ public sealed class InfiniteScheduleView : ContentView
     }
 
     private TimeScale BuildTimeScale()
-        => new TimeScale((float)EffectiveHourHeight, (float)TopContentInset, (float)BottomContentInset);
+        => new TimeScale(
+            (float)EffectiveHourHeight,
+            (float)TopContentInset,
+            (float)BottomContentInset,
+            (float)StartLockHour,
+            (float)EndLockHour);
+
+    // The strip still holds all 24 hours, so a new lock window only re-seats the scroll offset.
+    private void OnLockWindowChanged()
+    {
+        if (!double.IsNaN(scrollY))
+        {
+            scrollY = ClampVerticalToView(scrollY);
+            PublishVerticalOffset();
+        }
+
+        Invalidate();
+    }
 
 #if IOS
     private void AttachIosMenu()
@@ -2015,6 +2052,7 @@ public sealed class InfiniteScheduleView : ContentView
 
     private void UpdateBlockDrag(Point p, bool holding)
     {
+        var timeScale = BuildTimeScale();
         double dy = p.Y - dragStartPoint.Y;
         double snapped = Math.Round(dy / HourHeight * 60.0 / SnapMinutes) * SnapMinutes;
         var duration = dragOriginEnd - dragOriginStart;
@@ -2033,7 +2071,7 @@ public sealed class InfiniteScheduleView : ContentView
             {
                 var day = HitTestColumnDay((float)p.X, out string? pid);
                 var tentative = day.Add(dragOriginStart.TimeOfDay).AddMinutes(snapped);
-                var clamped = ClampToDay(tentative, day, duration);
+                var clamped = timeScale.ClampToWindow(tentative, day, duration);
                 newStart = clamped;
                 newEnd = clamped + duration;
                 if (pid is not null)
@@ -2047,7 +2085,7 @@ public sealed class InfiniteScheduleView : ContentView
             case BlockDragMode.ResizeStart:
             {
                 var s = dragOriginStart.AddMinutes(snapped);
-                var dayStart = dragOriginStart.Date;
+                var dayStart = timeScale.WindowStart(dragOriginStart);
                 if (s < dayStart)
                 {
                     s = dayStart;
@@ -2071,7 +2109,7 @@ public sealed class InfiniteScheduleView : ContentView
                     en = minEnd;
                 }
 
-                var dayEnd = dragOriginStart.Date.AddDays(1);
+                var dayEnd = timeScale.WindowEnd(dragOriginStart);
                 if (en > dayEnd)
                 {
                     en = dayEnd;
@@ -2211,7 +2249,15 @@ public sealed class InfiniteScheduleView : ContentView
         if (!settling)
         {
             horizontalOffset = ClampHorizontal(horizontalOffset + (velocityX * dt));
-            scrollY = ClampVerticalToView(scrollY + (velocityY * dt));
+
+            // Kill vertical momentum on contact with the wall — otherwise the fling keeps running
+            // (and the render loop with it) while the view is already pinned to the lock window.
+            double nextY = scrollY + (velocityY * dt);
+            scrollY = ClampVerticalToView(nextY);
+            if (Math.Abs(scrollY - nextY) > 0.5)
+            {
+                velocityY = 0;
+            }
 
             // Frame-rate-independent exponential decay.
             double decay = Math.Exp(-dt / FlingDecelerationTime);
@@ -2399,7 +2445,8 @@ public sealed class InfiniteScheduleView : ContentView
 
         float columnWidth = dayWidth / Math.Max(1, PersonCount);
         int dayIndex = stripStartDay + (int)Math.Floor(localX / dayWidth);
-        var when = AnchorDay.Date.AddDays(dayIndex) + BuildTimeScale().TimeForY(localY);
+        var tapScale = BuildTimeScale();
+        var when = AnchorDay.Date.AddDays(dayIndex) + tapScale.ClampToWindow(tapScale.TimeForY(localY));
 
         // Which person's sub-column was tapped (per-person mode) — the app binds a new draft to it.
         string? personId = null;

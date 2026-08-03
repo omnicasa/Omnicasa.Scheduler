@@ -64,6 +64,95 @@ public class TimeScaleTests
     }
 
     [Fact]
+    public void ClampOffset_Unlocked_UsesFullContentRange()
+    {
+        var scale = new TimeScale(60);
+        Assert.Equal(0, scale.ClampOffset(-50, 400), precision: 3);
+        Assert.Equal(600, scale.ClampOffset(600, 400), precision: 3);
+        Assert.Equal((60 * 24) - 400, scale.ClampOffset(99999, 400), precision: 3);
+    }
+
+    [Fact]
+    public void ClampOffset_Locked_KeepsViewportInsideWindow()
+    {
+        // 08:00–18:00 at 60px/h: window spans y 480..1080, viewport 400 tall.
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        Assert.Equal(480, scale.ClampOffset(0, 400), precision: 3);
+        Assert.Equal(600, scale.ClampOffset(600, 400), precision: 3);
+        Assert.Equal(680, scale.ClampOffset(99999, 400), precision: 3);
+    }
+
+    [Fact]
+    public void ClampOffset_LockedWindowShorterThanViewport_CentersTheWindow()
+    {
+        // 600px window, 800px viewport: pin it centered instead of against an edge.
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        Assert.Equal(380, scale.ClampOffset(0, 800), precision: 3);
+        Assert.Equal(380, scale.ClampOffset(99999, 800), precision: 3);
+    }
+
+    [Fact]
+    public void ClampOffset_LockedWithTopPadding_IncludesPaddingInWindowTop()
+    {
+        var scale = new TimeScale(60, topPadding: 48, lockStartHour: 8, lockEndHour: 18);
+        Assert.Equal(48 + 480, scale.ClampOffset(0, 400), precision: 3);
+    }
+
+    [Theory]
+    [InlineData(0, 24)]
+    [InlineData(18, 8)]
+    [InlineData(8, 8)]
+    public void Ctor_DegenerateOrInvertedWindow_IsTreatedAsUnlocked(float start, float end)
+    {
+        var scale = new TimeScale(60, lockStartHour: start, lockEndHour: end);
+        Assert.False(scale.IsLocked);
+        Assert.Equal(0, scale.LockStartHour);
+        Assert.Equal(24, scale.LockEndHour);
+    }
+
+    [Fact]
+    public void ClampToWindow_TimeOfDay_ClampsBothEnds()
+    {
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        Assert.Equal(TimeSpan.FromHours(8), scale.ClampToWindow(TimeSpan.FromHours(3)));
+        Assert.Equal(TimeSpan.FromHours(12), scale.ClampToWindow(TimeSpan.FromHours(12)));
+        Assert.Equal(TimeSpan.FromHours(18), scale.ClampToWindow(TimeSpan.FromHours(22)));
+    }
+
+    [Fact]
+    public void ClampToWindow_KeepsWholeAppointmentInsideWindow()
+    {
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        var day = new DateTime(2026, 8, 3);
+        var duration = TimeSpan.FromHours(2);
+
+        Assert.Equal(day.AddHours(8), scale.ClampToWindow(day.AddHours(5), day, duration));
+        Assert.Equal(day.AddHours(10), scale.ClampToWindow(day.AddHours(10), day, duration));
+
+        // End is pulled back so the 2h block finishes at 18:00, not past it.
+        Assert.Equal(day.AddHours(16), scale.ClampToWindow(day.AddHours(23), day, duration));
+    }
+
+    [Fact]
+    public void ClampToWindow_Unlocked_MatchesFullDayBounds()
+    {
+        var scale = new TimeScale(60);
+        var day = new DateTime(2026, 8, 3);
+        var duration = TimeSpan.FromHours(2);
+
+        Assert.Equal(day, scale.ClampToWindow(day.AddHours(-3), day, duration));
+        Assert.Equal(day.AddHours(22), scale.ClampToWindow(day.AddHours(30), day, duration));
+    }
+
+    [Fact]
+    public void ClampToWindow_DurationLongerThanWindow_PinsToWindowStart()
+    {
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        var day = new DateTime(2026, 8, 3);
+        Assert.Equal(day.AddHours(8), scale.ClampToWindow(day.AddHours(12), day, TimeSpan.FromHours(14)));
+    }
+
+    [Fact]
     public void TimeForY_ClampsAbovePaddingToZero()
     {
         var scale = new TimeScale(60, topPadding: 48);

@@ -148,6 +148,26 @@ public class ScheduleView : ContentView
             propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
             coerceValue: (_, v) => Math.Clamp((double)v, 24.0, 200.0));
 
+    /// <summary>Bindable property for <see cref="StartLockHour"/>.</summary>
+    public static readonly BindableProperty StartLockHourProperty =
+        BindableProperty.Create(
+            nameof(StartLockHour),
+            typeof(double),
+            typeof(ScheduleView),
+            0.0,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.0, 24.0));
+
+    /// <summary>Bindable property for <see cref="EndLockHour"/>.</summary>
+    public static readonly BindableProperty EndLockHourProperty =
+        BindableProperty.Create(
+            nameof(EndLockHour),
+            typeof(double),
+            typeof(ScheduleView),
+            24.0,
+            propertyChanged: (b, _, _) => ((ScheduleView)b).Rebuild(),
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.0, 24.0));
+
     /// <summary>Bindable property for <see cref="VerticalOffset"/>.</summary>
     public static readonly BindableProperty VerticalOffsetProperty =
         BindableProperty.Create(
@@ -503,6 +523,27 @@ public class ScheduleView : ContentView
     }
 
     /// <summary>
+    /// First hour the user may scroll to (working-time lock). The full 24 hours are still drawn;
+    /// the viewport simply cannot move above this line. 0 (the default) means no lock.
+    /// Set together with <see cref="EndLockHour"/> — e.g. 8 and 18 for an 08:00–18:00 working day.
+    /// </summary>
+    public double StartLockHour
+    {
+        get => (double)GetValue(StartLockHourProperty);
+        set => SetValue(StartLockHourProperty, value);
+    }
+
+    /// <summary>
+    /// Last hour the user may scroll to (working-time lock). 24 (the default) means no lock.
+    /// Ignored when it is not greater than <see cref="StartLockHour"/>.
+    /// </summary>
+    public double EndLockHour
+    {
+        get => (double)GetValue(EndLockHourProperty);
+        set => SetValue(EndLockHourProperty, value);
+    }
+
+    /// <summary>
     /// Current vertical scroll position of the body, in logical pixels (0 = midnight at the top).
     /// Two-way: scrolling updates it, and setting it scrolls the view. Bind every page's
     /// <see cref="VerticalOffset"/> to one shared value so a <c>CarouselView</c> of schedules keeps
@@ -625,7 +666,7 @@ public class ScheduleView : ContentView
         FlushPendingRebuild();
 
         // Minus the inset so the time lands just below an overlaid header, not under it.
-        double offset = context.Scale.YForTime(timeOfDay) - context.Scale.TopPadding;
+        double offset = ClampToWindow(context.Scale.YForTime(timeOfDay) - context.Scale.TopPadding);
 
         // Publish the offset for synced siblings, but suppress our own (non-animated) re-scroll —
         // we scroll explicitly below so the `animated` flag is honored.
@@ -648,23 +689,6 @@ public class ScheduleView : ContentView
     // with the fixed 24px zone a short appointment was resize-only (the corners covered all of it).
     private static float CornerZone(RectF rect)
         => MathF.Min(24f, MathF.Min(rect.Width, rect.Height) / 3f);
-
-    private static DateTime ClampToDay(DateTime t, DateTime day, TimeSpan duration)
-    {
-        var start = day.Date;
-        var end = start.AddDays(1) - duration;
-        if (t < start)
-        {
-            return start;
-        }
-
-        if (t > end)
-        {
-            return end;
-        }
-
-        return t;
-    }
 
     private void OnItemsSourceChanged(IEnumerable? oldValue, IEnumerable? newValue)
     {
@@ -819,9 +843,34 @@ public class ScheduleView : ContentView
             return;
         }
 
+        // The native ScrollView knows nothing about the working-time lock, so bounce back whenever
+        // the finger or its momentum carries the viewport past the window.
+        if (context.Scale.IsLocked)
+        {
+            double clamped = ClampToWindow(scrollY);
+            if (Math.Abs(clamped - scrollY) >= 0.5)
+            {
+                _ = bodyScroll.ScrollToAsync(0, clamped, false);
+                scrollY = clamped;
+            }
+        }
+
         pendingOffset = scrollY;
         offsetPublishTimer.Stop();
         offsetPublishTimer.Start();
+    }
+
+    private double ClampToWindow(double offset)
+        => context.Scale.ClampOffset(offset, (float)Math.Max(0, bodyScroll.Height));
+
+    // Re-seats the body inside the lock window; a no-op when it is already there.
+    private void ClampScrollIntoWindow()
+    {
+        double clamped = ClampToWindow(bodyScroll.ScrollY);
+        if (Math.Abs(clamped - bodyScroll.ScrollY) >= 0.5)
+        {
+            _ = bodyScroll.ScrollToAsync(0, clamped, false);
+        }
     }
 
     private void PublishPendingOffset()
@@ -845,6 +894,7 @@ public class ScheduleView : ContentView
             return;
         }
 
+        offset = ClampToWindow(offset);
         if (Math.Abs(bodyScroll.ScrollY - offset) < 0.5)
         {
             return;
@@ -901,7 +951,12 @@ public class ScheduleView : ContentView
         context.Theme = theme;
         context.TimeRailWidth = (float)theme.TimeRailWidth;
         context.HeaderHeight = headerHeight;
-        context.Scale = new TimeScale((float)HourHeight, (float)TopContentInset, (float)BottomContentInset);
+        context.Scale = new TimeScale(
+            (float)HourHeight,
+            (float)TopContentInset,
+            (float)BottomContentInset,
+            (float)StartLockHour,
+            (float)EndLockHour);
 
         bool inhouseHeader = HeaderMode == ScheduleHeaderMode.Inhouse && (personsMode || days > 1);
         headerCanvas.HeightRequest = inhouseHeader ? headerHeight : 0;
@@ -969,6 +1024,11 @@ public class ScheduleView : ContentView
         if (pendingOffset is null && VerticalOffset > 0 && Math.Abs(bodyScroll.ScrollY - VerticalOffset) >= 0.5)
         {
             Dispatcher.Dispatch(() => ApplyVerticalOffset(VerticalOffset));
+        }
+        else if (pendingOffset is null && context.Scale.IsLocked)
+        {
+            // A freshly-set lock window can leave the viewport outside it — pull it back once remeasured.
+            Dispatcher.Dispatch(ClampScrollIntoWindow);
         }
     }
 
@@ -1111,7 +1171,7 @@ public class ScheduleView : ContentView
                     ? context.Columns[targetCol].DayStart
                     : typingOriginStart.Date;
                 var tentative = baseDay.Add(typingOriginStart.TimeOfDay).AddMinutes(snappedMinutes);
-                var clamped = ClampToDay(tentative, baseDay, duration);
+                var clamped = context.Scale.ClampToWindow(tentative, baseDay, duration);
                 typing.Start = clamped;
                 typing.End = clamped + duration;
 
@@ -1131,7 +1191,7 @@ public class ScheduleView : ContentView
             case TypingDragMode.ResizeStart:
             {
                 var newStart = typingOriginStart.AddMinutes(snappedMinutes);
-                var dayStart = typingOriginStart.Date;
+                var dayStart = context.Scale.WindowStart(typingOriginStart);
                 if (newStart < dayStart)
                 {
                     newStart = dayStart;
@@ -1155,7 +1215,7 @@ public class ScheduleView : ContentView
                     newEnd = minEnd;
                 }
 
-                var dayEnd = typingOriginStart.Date.AddDays(1);
+                var dayEnd = context.Scale.WindowEnd(typingOriginStart);
                 if (newEnd > dayEnd)
                 {
                     newEnd = dayEnd;
@@ -1328,7 +1388,7 @@ public class ScheduleView : ContentView
                 int col = HitTestColumn(p.X);
                 DateTime baseDay = col >= 0 ? context.Columns[col].DayStart : holdingOriginStart.Date;
                 var tentative = baseDay.Add(holdingOriginStart.TimeOfDay).AddMinutes(snappedMinutes);
-                var clamped = ClampToDay(tentative, baseDay, duration);
+                var clamped = context.Scale.ClampToWindow(tentative, baseDay, duration);
                 holdingDragStart = clamped;
                 holdingDragEnd = clamped + duration;
                 holdingDragColumn = col;
@@ -1338,7 +1398,7 @@ public class ScheduleView : ContentView
             case TypingDragMode.ResizeStart:
             {
                 var newStart = holdingOriginStart.AddMinutes(snappedMinutes);
-                var dayStart = holdingOriginStart.Date;
+                var dayStart = context.Scale.WindowStart(holdingOriginStart);
                 if (newStart < dayStart)
                 {
                     newStart = dayStart;
@@ -1363,7 +1423,7 @@ public class ScheduleView : ContentView
                     newEnd = minEnd;
                 }
 
-                var dayEnd = holdingOriginStart.Date.AddDays(1);
+                var dayEnd = context.Scale.WindowEnd(holdingOriginStart);
                 if (newEnd > dayEnd)
                 {
                     newEnd = dayEnd;
@@ -1543,11 +1603,9 @@ public class ScheduleView : ContentView
         int idx = (int)Math.Floor((point.X - railWidth) / colW);
         idx = Math.Clamp(idx, 0, n - 1);
         var column = context.Columns[idx];
-        var timeOfDay = context.Scale.TimeForY(point.Y);
-        if (timeOfDay.TotalHours > 24)
-        {
-            timeOfDay = TimeSpan.FromHours(24);
-        }
+
+        // Clamps to 24:00, or to the working-time lock when one is set.
+        var timeOfDay = context.Scale.ClampToWindow(context.Scale.TimeForY(point.Y));
 
         when = column.DayStart + timeOfDay;
         return true;
@@ -1574,7 +1632,12 @@ public class ScheduleView : ContentView
                 var target = Math.Clamp(pinchBase * pinchScale, 24, 200);
                 if (Math.Abs(target - context.Scale.HourHeight) >= 1.0)
                 {
-                    context.Scale = new TimeScale((float)target, context.Scale.TopPadding, context.Scale.BottomPadding);
+                    context.Scale = new TimeScale(
+                        (float)target,
+                        context.Scale.TopPadding,
+                        context.Scale.BottomPadding,
+                        context.Scale.LockStartHour,
+                        context.Scale.LockEndHour);
                     bodyCanvas.HeightRequest = context.Scale.TotalHeight;
                     bodyCanvas.Invalidate();
                     KeepAnchorPinned();
@@ -1603,9 +1666,7 @@ public class ScheduleView : ContentView
     private void KeepAnchorPinned()
     {
         var newAnchorCanvasY = context.Scale.YForTime(TimeSpan.FromHours(pinchAnchorHours));
-        var newScrollY = newAnchorCanvasY - pinchAnchorViewportY;
-        var maxScroll = Math.Max(0, context.Scale.TotalHeight - bodyScroll.Height);
-        newScrollY = Math.Clamp(newScrollY, 0, maxScroll);
+        var newScrollY = ClampToWindow(newAnchorCanvasY - pinchAnchorViewportY);
         _ = bodyScroll.ScrollToAsync(0, newScrollY, false);
     }
 }

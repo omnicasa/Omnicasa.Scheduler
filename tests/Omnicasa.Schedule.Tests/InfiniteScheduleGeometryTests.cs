@@ -117,4 +117,22 @@ public class InfiniteScheduleGeometryTests
     {
         Assert.Equal(123, InfiniteScheduleGeometry.ChunkFlickTarget(0, 123, 0, 1, true), precision: 3);
     }
+
+    [Theory]
+    [InlineData(0, 100, 0)]
+    [InlineData(49, 100, 0)] // still mostly day 0
+    [InlineData(50, 100, 1)] // past the midpoint → day 1 takes the header
+    [InlineData(149, 100, 1)]
+    [InlineData(-49, 100, 0)]
+    [InlineData(-51, 100, -1)]
+    public void DominantDay_FlipsAtTheMidpointOfASwipe(double offset, float dayWidth, int expected)
+    {
+        Assert.Equal(expected, InfiniteScheduleGeometry.DominantDay(offset, dayWidth));
+    }
+
+    [Fact]
+    public void DominantDay_ZeroDayWidth_IsZero()
+    {
+        Assert.Equal(0, InfiniteScheduleGeometry.DominantDay(500, 0));
+    }
 }

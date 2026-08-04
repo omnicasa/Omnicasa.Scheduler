@@ -78,7 +78,7 @@ public partial class DayPage : ContentPage
 
     private async void OnAppointmentTapped(object? sender, AppointmentEventArgs e)
     {
-        await DisplayAlert(e.Appointment.Title, $"{e.Appointment.Start:t} – {e.Appointment.End:t}", "OK");
+        await DisplayAlertAsync(e.Appointment.Title, $"{e.Appointment.Start:t} – {e.Appointment.End:t}", "OK");
     }
 
     private void OnAppointmentChanged(object? sender, AppointmentEventArgs e)

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <!-- Platform TFMs ship the controls; plain net9.0 is a headless target so the
          logic can be unit-tested on a desktop xUnit host (no simulator needed). -->
-    <TargetFrameworks>net9.0-android;net9.0-ios;net9.0</TargetFrameworks>
+    <TargetFrameworks>net10.0-android;net10.0-ios;net10.0</TargetFrameworks>
     <UseMaui>true</UseMaui>
     <SingleProject>false</SingleProject>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -26,9 +26,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Maui.Controls" Version="9.0.120" />
-    <!-- Not used in code; only pulled for the platform builds, not the net9.0 test target. -->
-    <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="9.0.120"
+    <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.80" />
+    <PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="10.0.80"
                       Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != ''" />
     <!-- GPU canvas backing InfiniteScheduleView; platform builds only (net9.0 headless excludes the control).
          3.x required: 2.88.x has no iOS SKGLViewHandler, so SKGLView cannot render on iOS there. -->

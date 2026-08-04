@@ -24,7 +24,7 @@ public partial class SchedulePage
 
     private async void OnItemActionInvoked(object? sender, ScheduleItemActionEventArgs e)
     {
-        await DisplayAlert(e.Item.Title ?? "(no title)", $"Action: {e.Action}", "OK");
+        await DisplayAlertAsync(e.Item.Title ?? "(no title)", $"Action: {e.Action}", "OK");
     }
 
     private void OnHoldingDropped(object? sender, HoldingDroppedEventArgs e)
@@ -54,7 +54,7 @@ public partial class SchedulePage
 
     private async void OnTapped(object? sender, ScheduleTappedEventArgs e)
     {
-        await DisplayAlert(
+        await DisplayAlertAsync(
             "Tap",
             $"Empty space at {e.When.ToString("g", CultureInfo.CurrentCulture)}",
             "OK");
@@ -79,7 +79,7 @@ public partial class SchedulePage
     private async void OnItemTapped(object? sender, ScheduleItemTappedEventArgs e)
     {
         var item = e.Item;
-        await DisplayAlert(
+        await DisplayAlertAsync(
             item.Title ?? "(no title)",
             $"Tap: {item.Start.ToString("g", CultureInfo.CurrentCulture)} – {item.End.ToString("t", CultureInfo.CurrentCulture)}",
             "OK");
@@ -88,7 +88,7 @@ public partial class SchedulePage
     private async void OnItemLongTapped(object? sender, ScheduleItemTappedEventArgs e)
     {
         var item = e.Item;
-        await DisplayAlert(
+        await DisplayAlertAsync(
             item.Title ?? "(no title)",
             $"Long tap: {item.Start.ToString("g", CultureInfo.CurrentCulture)} – {item.End.ToString("t", CultureInfo.CurrentCulture)}",
             "OK");

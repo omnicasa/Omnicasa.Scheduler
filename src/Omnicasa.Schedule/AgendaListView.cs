@@ -489,7 +489,7 @@ public class AgendaListView : ContentView
         // Subtle "push up" as the next day takes over the pin.
         stickyOverlay.AbortAnimation("StickyPush");
         stickyOverlay.TranslationY = 6;
-        _ = stickyOverlay.TranslateTo(0, 0, 110, Easing.CubicOut);
+        _ = stickyOverlay.TranslateToAsync(0, 0, 110, Easing.CubicOut);
     }
 
     // One flat row: date column (left, shown on a day's first row) + one appointment (right).

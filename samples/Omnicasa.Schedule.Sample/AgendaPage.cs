@@ -25,7 +25,7 @@ public sealed class AgendaPage : ContentPage
     private async void OnItemTapped(object? sender, ScheduleItemTappedEventArgs e)
     {
         var item = e.Item;
-        await DisplayAlert(
+        await DisplayAlertAsync(
             item.Title ?? "(no title)",
             $"{item.Start.ToString("g", CultureInfo.CurrentCulture)} – {item.End.ToString("t", CultureInfo.CurrentCulture)}",
             "OK");

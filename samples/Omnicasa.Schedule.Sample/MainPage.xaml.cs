@@ -109,10 +109,10 @@ public partial class MainPage : ContentPage
         incoming.IsVisible = true;
 
         await Task.WhenAll(
-            outgoing.ScaleTo(1.15, ZoomDuration, Easing.CubicOut),
-            outgoing.FadeTo(0, ZoomDuration),
-            incoming.ScaleTo(1, ZoomDuration, Easing.CubicOut),
-            incoming.FadeTo(1, ZoomDuration));
+            outgoing.ScaleToAsync(1.15, ZoomDuration, Easing.CubicOut),
+            outgoing.FadeToAsync(0, ZoomDuration),
+            incoming.ScaleToAsync(1, ZoomDuration, Easing.CubicOut),
+            incoming.FadeToAsync(1, ZoomDuration));
 
         ResetHidden(outgoing);
         animating = false;
@@ -128,10 +128,10 @@ public partial class MainPage : ContentPage
         incoming.IsVisible = true;
 
         await Task.WhenAll(
-            outgoing.ScaleTo(0.85, ZoomDuration, Easing.CubicIn),
-            outgoing.FadeTo(0, ZoomDuration),
-            incoming.ScaleTo(1, ZoomDuration, Easing.CubicOut),
-            incoming.FadeTo(1, ZoomDuration));
+            outgoing.ScaleToAsync(0.85, ZoomDuration, Easing.CubicIn),
+            outgoing.FadeToAsync(0, ZoomDuration),
+            incoming.ScaleToAsync(1, ZoomDuration, Easing.CubicOut),
+            incoming.FadeToAsync(1, ZoomDuration));
 
         ResetHidden(outgoing);
         animating = false;

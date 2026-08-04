@@ -1382,7 +1382,9 @@ public sealed class InfiniteScheduleView : ContentView
 
         // The band already owns the header row, so it only grows past it when the lanes (plus the
         // person row below them) need more than that row can hold — one all-day bar costs nothing.
-        float personRow = Persons is { Count: > 0 } ? SingleDayPersonRowHeight : 0f;
+        // A lone person gets no row: their name says nothing the header doesn't, which is the same
+        // rule the multi-day header applies (DrawHeader only shows names for Count > 1).
+        float personRow = Persons is { Count: > 1 } ? SingleDayPersonRowHeight : 0f;
         allDayTargetHeight = Math.Max(0f, stack + personRow - HeaderHeight);
     }
 
@@ -1559,7 +1561,8 @@ public sealed class InfiniteScheduleView : ContentView
         var day = AnchorDay.Date.AddDays(page.DayIndex);
         var date = DateOnly.FromDateTime(day);
 
-        var persons = Persons is { Count: > 0 } p
+        // Count > 1, not > 0: a single selected person contributes no column worth labelling.
+        var persons = Persons is { Count: > 1 } p
             ? (p as IReadOnlyList<IPerson> ?? new List<IPerson>(p))
             : null;
         float personRow = persons is null ? 0f : SingleDayPersonRowHeight;

@@ -28,6 +28,39 @@ public static class InfiniteScheduleGeometry
         => dayWidth <= 0 ? horizontalOffset : Math.Round(horizontalOffset / dayWidth) * dayWidth;
 
     /// <summary>
+    /// Target offset for a flick that advances one chunk (a screenful of days) from where the gesture
+    /// started. A fast flick can drag the content past that chunk before the finger lifts, so the
+    /// target is also pushed to the next whole day in the flick direction — the page transition never
+    /// finishes behind where the finger left it.
+    /// </summary>
+    /// <param name="startOffset">Offset when the gesture began, in logical pixels.</param>
+    /// <param name="currentOffset">Offset when the finger lifted, in logical pixels.</param>
+    /// <param name="dayWidth">Width of one day column in logical pixels.</param>
+    /// <param name="step">Days per chunk (the view mode).</param>
+    /// <param name="forward">True when the flick moves the content to later days.</param>
+    public static double ChunkFlickTarget(
+        double startOffset,
+        double currentOffset,
+        float dayWidth,
+        int step,
+        bool forward)
+    {
+        if (dayWidth <= 0)
+        {
+            return currentOffset;
+        }
+
+        const double Tolerance = 0.001; // don't let float dust on a day boundary cost a whole extra day
+        int startDay = (int)Math.Round(startOffset / dayWidth);
+        double current = currentOffset / dayWidth;
+        int target = forward
+            ? Math.Max(startDay + Math.Max(1, step), (int)Math.Ceiling(current - Tolerance))
+            : Math.Min(startDay - Math.Max(1, step), (int)Math.Floor(current + Tolerance));
+
+        return target * (double)dayWidth;
+    }
+
+    /// <summary>
     /// Clamps an offset so the day window stays within the optional min/max day indices. A null bound
     /// leaves that direction unbounded (truly infinite). Bounds are expressed as day indices relative
     /// to the anchor day.

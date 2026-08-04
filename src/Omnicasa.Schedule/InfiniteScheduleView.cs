@@ -56,8 +56,11 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Time constant (s) of the critically damped spring that settles the horizontal offset.</summary>
     private const double SettleTau = 0.11;
 
-    /// <summary>Weight of the newest sample in the release-velocity moving average (0..1).</summary>
-    private const double VelocitySmoothing = 0.5;
+    /// <summary>Time constant (s) of the release-velocity average: samples older than this fade out.</summary>
+    private const double VelocityTau = 0.05;
+
+    /// <summary>A finger resting this long (s) before lifting has no momentum left, so release doesn't fling.</summary>
+    private const double VelocityIdleTimeout = 0.09;
 
     /// <summary>Finger travel (logical px) before a drag commits to a single axis.</summary>
     private const double PanLockThreshold = 10;
@@ -69,7 +72,7 @@ public sealed class InfiniteScheduleView : ContentView
     private const float HoldingHalo = 16;
 
     /// <summary>Finger speed (logical px/s) that counts as a flick and advances an extra day.</summary>
-    private const double PageFlickSpeed = 500;
+    private const double PageFlickSpeed = 380;
 
     /// <summary>Duration (s) of the typing draft's pop-in animation.</summary>
     private const double TypingAppearDuration = 0.18;
@@ -193,7 +196,7 @@ public sealed class InfiniteScheduleView : ContentView
             nameof(FlingGain),
             typeof(double),
             typeof(InfiniteScheduleView),
-            1.8,
+            1.4,
             coerceValue: (_, v) => Math.Max(0.0, (double)v));
 
     /// <summary>Bindable property for <see cref="FlingDecelerationTime"/>.</summary>
@@ -703,7 +706,7 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(CurrentDayProperty, value);
     }
 
-    /// <summary>Flick launch multiplier; higher = faster, further scrolling (default 1.8, min 0).</summary>
+    /// <summary>Flick launch multiplier; higher = faster, further scrolling (default 1.4, min 0).</summary>
     public double FlingGain
     {
         get => (double)GetValue(FlingGainProperty);
@@ -1813,7 +1816,9 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         interaction = InteractionKind.Scroll;
-        if (pressValid)
+
+        // A finger held down to stop momentum must not also long-press into a new block or menu.
+        if (pressValid && !caughtMotion)
         {
             longPressTimer ??= CreateLongPressTimer();
             longPressTimer.Stop();
@@ -1855,18 +1860,20 @@ public sealed class InfiniteScheduleView : ContentView
         double now = clock.Elapsed.TotalSeconds;
         double dt = Math.Max(now - panSampleSeconds, 1e-3);
 
-        // EMA keeps the flick's peak velocity (the last pre-lift sample is usually decelerating).
+        // Time-weighted EMA: a fixed per-sample weight would hold the gesture's peak speed and read a
+        // fast-then-slow drag as a hard flick. Weighting by dt makes it track the last ~VelocityTau only.
+        double alpha = 1.0 - Math.Exp(-dt / VelocityTau);
         if (lockAxis == 1)
         {
             double instX = (totalX - lastPanTotalX) / dt;
-            velocityX = (velocityX * (1 - VelocitySmoothing)) + (instX * VelocitySmoothing);
+            velocityX = (velocityX * (1 - alpha)) + (instX * alpha);
             velocityY = 0;
             horizontalOffset = ClampHorizontal(panStartHorizontal - totalX);
         }
         else
         {
             double instY = (totalY - lastPanTotalY) / dt;
-            velocityY = (velocityY * (1 - VelocitySmoothing)) + (instY * VelocitySmoothing);
+            velocityY = (velocityY * (1 - alpha)) + (instY * alpha);
             velocityX = 0;
             scrollY = ClampVerticalToView(panStartVertical - totalY);
         }
@@ -1897,6 +1904,7 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         longPressTimer?.Stop();
+        DecayReleaseVelocity();
 
         if (lockAxis == 1 && PagingEnabled && Math.Abs(velocityX) >= PageFlickSpeed)
         {
@@ -1913,11 +1921,19 @@ public sealed class InfiniteScheduleView : ContentView
             // Vertical (or paging off) → free momentum, settles on a day.
             StartFling();
         }
+        else if (caughtMotion)
+        {
+            // Touching down to catch momentum means "stop here" — no tap, and no settle animation
+            // either, or the view keeps sliding after the finger is already down. The next flick
+            // rounds the offset back onto a whole day, so resting mid-day self-corrects.
+            StopMotion();
+            Invalidate();
+        }
         else
         {
-            // A plain tap fires an action; a tap that caught a fling only stops it. Either way,
-            // settle the day axis to the nearest column so it never rests mid-day.
-            if (pressValid && !longFired && !caughtMotion)
+            // A plain tap fires an action, then the day axis settles to the nearest column so it
+            // never rests mid-day.
+            if (pressValid && !longFired)
             {
                 DispatchTap(pressPoint, longPress: false);
             }
@@ -1929,21 +1945,45 @@ public sealed class InfiniteScheduleView : ContentView
         interaction = InteractionKind.None;
     }
 
+    // Momentum is whatever the finger was doing in the last VelocityTau before it lifted: fade the
+    // measured velocity across the gap since the final move sample, and drop it entirely once the
+    // finger has clearly come to rest (drag, hold, lift → no fling).
+    private void DecayReleaseVelocity()
+    {
+        double gap = clock.Elapsed.TotalSeconds - panSampleSeconds;
+        if (gap >= VelocityIdleTimeout)
+        {
+            velocityX = 0;
+            velocityY = 0;
+            return;
+        }
+
+        if (gap > 0)
+        {
+            double decay = Math.Exp(-gap / VelocityTau);
+            velocityX *= decay;
+            velocityY *= decay;
+        }
+    }
+
     // Flick paging: advance exactly one chunk (a screenful = ViewMode days) from the gesture's start
     // day, in the flick direction, then ease onto that day. Repeated flicks step chunk by chunk.
     private void StartChunkFlick()
     {
-        double snapWidth = dayWidth;
+        float snapWidth = dayWidth;
         if (snapWidth <= 0)
         {
             StopMotion();
             return;
         }
 
-        int startDay = (int)Math.Round(panStartHorizontal / snapWidth);
-        int step = Math.Max(1, ViewMode);
-        int target = velocityX < 0 ? startDay + step : startDay - step;
-        BeginSettle(ClampHorizontal(target * snapWidth));
+        double target = InfiniteScheduleGeometry.ChunkFlickTarget(
+            panStartHorizontal,
+            horizontalOffset,
+            snapWidth,
+            ViewMode,
+            forward: velocityX < 0);
+        BeginSettle(ClampHorizontal(target));
     }
 
     // Slow-drag day snap: settle the leftmost column to the nearest whole day (drag past half a day

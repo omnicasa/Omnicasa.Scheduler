@@ -111,6 +111,59 @@ public readonly struct InfiniteScheduleHeaderContext
 }
 
 /// <summary>
+/// Everything a renderer needs to paint one page of the one-day header band: the date sitting above
+/// the hour rail, and — right of it — either the day's all-day bars or a summary line. Carried by
+/// <see cref="InfiniteScheduleRenderer.DrawSingleDayHeader"/>, once per page in flight; the canvas is
+/// already clipped to <c>[0,0] .. [Width, BandHeight]</c>.
+///
+/// <para>The band is a carousel: a page is as wide as the viewport, so at rest one page fills it and
+/// its neighbours sit off-screen, and during a swipe the whole band travels with the day. Paint only
+/// the page's own span — <c>DateArea.Left</c> to <c>ContentArea.Right</c>, which may run off either
+/// edge — or the page sliding in behind gets wiped out.</para>
+/// </summary>
+public readonly struct InfiniteSingleDayHeaderContext
+{
+    /// <summary>Active theme (colors + font sizes).</summary>
+    public ScheduleViewTheme Theme { get; init; }
+
+    /// <summary>Full logical width of the band.</summary>
+    public float Width { get; init; }
+
+    /// <summary>Total band height: the header row plus whatever the all-day bars need.</summary>
+    public float BandHeight { get; init; }
+
+    /// <summary>The day the band is labelling.</summary>
+    public DateTime Day { get; init; }
+
+    /// <summary>True when <see cref="Day"/> is today.</summary>
+    public bool IsToday { get; init; }
+
+    /// <summary>Left cell holding the date, sitting directly above the hour rail.</summary>
+    public SKRect DateArea { get; init; }
+
+    /// <summary>Region right of the rail holding the all-day bars, or the summary line when there are none.</summary>
+    public SKRect ContentArea { get; init; }
+
+    /// <summary>Persons split into sub-columns; null/empty when the day is a single column.</summary>
+    public IReadOnlyList<IPerson>? Persons { get; init; }
+
+    /// <summary>Width of one person sub-column; the content width when there are no persons.</summary>
+    public float PersonColumnWidth { get; init; }
+
+    /// <summary>Row along the band's bottom reserved for the person initials; empty when there are no persons.</summary>
+    public SKRect PersonArea { get; init; }
+
+    /// <summary>The day's all-day bars, already laid out inside <see cref="ContentArea"/>; empty when none.</summary>
+    public IReadOnlyList<InfiniteAllDayBlock> AllDayBars { get; init; }
+
+    /// <summary>The day's counts, for a renderer that wants to compose its own text.</summary>
+    public ScheduleDaySummary Summary { get; init; }
+
+    /// <summary>Summary line to draw when there are no all-day bars (from the view's formatter).</summary>
+    public string SummaryText { get; init; }
+}
+
+/// <summary>
 /// Pluggable Skia painter for <see cref="InfiniteScheduleView"/> — the GPU-canvas counterpart of
 /// <c>ScheduleViewRenderer</c>. Subclass and override only the hooks you need; each default
 /// reproduces the built-in look. For per-type appointment looks, override <see cref="DrawAppointment"/>
@@ -281,6 +334,139 @@ public class InfiniteScheduleRenderer
                 textPaint.Color = isToday ? ToSk(theme.Today) : ToSk(person.Color ?? theme.Foreground);
                 canvas.DrawText(ScheduleColumnBuilder.Initials(person.Name), cCx, headerHeight - 7, SKTextAlign.Center, secondaryFont, textPaint);
             }
+        }
+
+        canvas.Restore();
+    }
+
+    /// <summary>
+    /// Draws the one-day header band (<c>ViewMode == 1</c> with <c>SingleDayHeader</c> on). Default:
+    /// weekday over day number above the hour rail, and right of it the day's all-day bars — or, when
+    /// the day has none, the summary line ("3 appointments" / "Nothing planned"). Override to restyle
+    /// it, or to draw your own text; <see cref="InfiniteSingleDayHeaderContext.Summary"/> carries the
+    /// raw counts. The canvas is already clipped to the band.
+    /// </summary>
+    /// <param name="canvas">Target GPU canvas (drawing in logical units).</param>
+    /// <param name="ctx">Band geometry, day, persons, all-day bars, and summary text.</param>
+    public virtual void DrawSingleDayHeader(SKCanvas canvas, InfiniteSingleDayHeaderContext ctx)
+    {
+        var theme = ctx.Theme;
+
+        // Paint this page's own span only — the band is a carousel, and the page swiping in behind
+        // must not be wiped out by the one in front of it.
+        float left = ctx.DateArea.Left;
+        float right = ctx.ContentArea.Right;
+        using var bg = new SKPaint { Color = ToSk(theme.HeaderBackground ?? theme.Background), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(new SKRect(left, 0, right, ctx.BandHeight), bg);
+
+        using var sep = new SKPaint { Color = ToSk(theme.GridLine), StrokeWidth = 1, IsAntialias = false };
+        canvas.DrawLine(left, ctx.BandHeight - 0.5f, right, ctx.BandHeight - 0.5f, sep);
+
+        DrawSingleDayDate(canvas, ctx);
+
+        if (ctx.AllDayBars is { Count: > 0 } bars)
+        {
+            canvas.Save();
+            canvas.ClipRect(ctx.ContentArea);
+            foreach (var bar in bars)
+            {
+                DrawAllDayBar(canvas, bar);
+            }
+
+            canvas.Restore();
+        }
+        else if (!string.IsNullOrEmpty(ctx.SummaryText))
+        {
+            float size = (float)theme.HeaderPrimaryFontSize;
+            using var summaryPaint = new SKPaint { Color = ToSk(theme.Muted), IsAntialias = true };
+            using var summaryFont = new SKFont(RegularTypeface, size);
+            canvas.Save();
+            canvas.ClipRect(ctx.ContentArea);
+            canvas.DrawText(
+                ctx.SummaryText,
+                ctx.ContentArea.Left + 10,
+                ctx.ContentArea.MidY + (size * 0.36f),
+                SKTextAlign.Left,
+                summaryFont,
+                summaryPaint);
+            canvas.Restore();
+        }
+
+        DrawSingleDayPersons(canvas, ctx);
+    }
+
+    /// <summary>Draws the date cell of the one-day header: weekday over day number, tinted when today.</summary>
+    /// <param name="canvas">Target GPU canvas.</param>
+    /// <param name="ctx">The band context.</param>
+    protected virtual void DrawSingleDayDate(SKCanvas canvas, InfiniteSingleDayHeaderContext ctx)
+    {
+        var theme = ctx.Theme;
+        var area = ctx.DateArea;
+        float weekdaySize = (float)theme.HeaderPrimaryFontSize;
+        float numberSize = (float)theme.HeaderSecondaryFontSize;
+        string weekday = ctx.Day.ToString("ddd", CultureInfo.CurrentCulture).ToUpperInvariant();
+        string number = ctx.Day.Day.ToString(CultureInfo.CurrentCulture);
+
+        // Stack the two lines about the cell's middle, so the pair stays centered as the band grows.
+        float cx = area.MidX;
+        float block = weekdaySize + 4 + numberSize;
+        float top = area.MidY - (block / 2f);
+
+        using var paint = new SKPaint { Color = ToSk(ctx.IsToday ? theme.Today : theme.Muted), IsAntialias = true };
+        using var weekdayFont = new SKFont(RegularTypeface, weekdaySize);
+        canvas.DrawText(weekday, cx, top + weekdaySize, SKTextAlign.Center, weekdayFont, paint);
+
+        paint.Color = ToSk(ctx.IsToday ? theme.Today : theme.Foreground);
+        using var numberFont = new SKFont(BoldTypeface, numberSize);
+        canvas.DrawText(number, cx, top + block, SKTextAlign.Center, numberFont, paint);
+    }
+
+    /// <summary>Draws the person initials row along the bottom of the one-day header; no-op without persons.</summary>
+    /// <param name="canvas">Target GPU canvas.</param>
+    /// <param name="ctx">The band context.</param>
+    protected virtual void DrawSingleDayPersons(SKCanvas canvas, InfiniteSingleDayHeaderContext ctx)
+    {
+        if (ctx.Persons is not { Count: > 0 } persons || ctx.PersonArea.Height <= 0)
+        {
+            return;
+        }
+
+        var theme = ctx.Theme;
+        var area = ctx.PersonArea;
+        float size = (float)theme.HeaderPrimaryFontSize;
+
+        using var paint = new SKPaint { IsAntialias = true };
+        using var accent = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+        using var sep = new SKPaint { Color = ToSk(theme.GridLine), StrokeWidth = 0.5f, IsAntialias = false };
+        using var font = new SKFont(RegularTypeface, size);
+
+        canvas.Save();
+        canvas.ClipRect(area);
+
+        for (int i = 0; i < persons.Count; i++)
+        {
+            var person = persons[i];
+            float left = area.Left + (i * ctx.PersonColumnWidth);
+
+            if (i > 0)
+            {
+                canvas.DrawLine(left, area.Top, left, area.Bottom, sep);
+            }
+
+            if (person.Color is { } pc)
+            {
+                accent.Color = ToSk(pc);
+                canvas.DrawRect(left + 2, area.Bottom - 3, ctx.PersonColumnWidth - 4, 2, accent);
+            }
+
+            paint.Color = ToSk(ctx.IsToday ? theme.Today : (person.Color ?? theme.Foreground));
+            canvas.DrawText(
+                ScheduleColumnBuilder.Initials(person.Name),
+                left + (ctx.PersonColumnWidth / 2f),
+                area.Bottom - 6,
+                SKTextAlign.Center,
+                font,
+                paint);
         }
 
         canvas.Restore();

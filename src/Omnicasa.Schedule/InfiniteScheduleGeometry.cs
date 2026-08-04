@@ -15,6 +15,16 @@ public static class InfiniteScheduleGeometry
     public static int FirstVisibleDay(double horizontalOffset, float dayWidth)
         => dayWidth <= 0 ? 0 : (int)Math.Floor(horizontalOffset / dayWidth);
 
+    /// <summary>
+    /// Index of the day filling most of the viewport — the leftmost day rounded rather than floored.
+    /// The one-day header is pinned to the viewport, not to a column, so it swaps content at the
+    /// midpoint of a swipe instead of sliding away with the day it labels.
+    /// </summary>
+    /// <param name="horizontalOffset">Pixels scrolled right of the anchor day's left edge.</param>
+    /// <param name="dayWidth">Width of one day column in logical pixels.</param>
+    public static int DominantDay(double horizontalOffset, float dayWidth)
+        => dayWidth <= 0 ? 0 : (int)Math.Floor((horizontalOffset / dayWidth) + 0.5);
+
     /// <summary>Number of day columns needed to fill <paramref name="bodyWidth"/>, plus one for the partial edge.</summary>
     /// <param name="bodyWidth">Width available for day columns (viewport minus the time rail).</param>
     /// <param name="dayWidth">Width of one day column in logical pixels.</param>

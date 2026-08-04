@@ -169,6 +169,9 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 | `AnchorDay` | today | The day at horizontal offset 0; scrolling is measured relative to it. |
 | `MinDay` / `MaxDay` | `null` | Optional bounds; `null` = unbounded (truly infinite) in that direction. |
 | `ViewMode` | `1` | Day columns visible at once (1–7); sets the day-column width. |
+| `ShowAllDay` | `true` | All-day / multi-day bars in a panel above the grid; off hides those items entirely. |
+| `SingleDayHeader` | `true` | **One-day mode only.** Puts the date above the hour rail and gives the rest of the band to the day's all-day bars — or, when it has none, to a summary line ("3 appointments" / "Nothing planned"). Off restores the centered day-column header. |
+| `DaySummaryFormatter` | `null` | `Func<ScheduleDaySummary, string>` building that summary line (localize it here); `null` uses the built-in English text. |
 | `HourHeight` | `60` | Pixels per hour; clamped `[24, 300]`, **two-finger pinch to zoom**. |
 | `StartLockHour` / `EndLockHour` | `0` / `24` | **Working-time lock.** Set e.g. `8` / `18` and the viewport cannot scroll outside 08:00–18:00 — the full 24 hours are still drawn, just unreachable. Drag/resize and tap-to-create clamp to the same window. Ignored when `EndLockHour <= StartLockHour`. |
 | `VerticalOffset` | `0` | Two-way vertical (time) scroll offset. |
@@ -177,7 +180,8 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 | `HoldingSchedule` | `null` | "Held" block — drag to reposition; shows a leash back to its origin; reports `HoldingDropped`. |
 | `TopContentInset` / `BottomContentInset` | `0` | Blank space above midnight / below 24:00 inside the body. |
 | `PagingEnabled` | `true` | Horizontal gestures: a slow drag snaps to the nearest **day**; a flick pages exactly **one screenful** (`ViewMode` days) carousel-style. |
-| `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.8` / `0.5` / `12000` | Momentum tuning for vertical fling. |
+| `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.4` / `0.5` / `12000` | Momentum tuning for the free (vertical) fling. In paging mode there is no free momentum — `FlingGain` only feeds the page spring's launch velocity, so use `SettleTime` to make paging faster. |
+| `SettleTime` | `0.07` | Time constant (s) of the spring that settles the day axis: the page transition after a flick, the snap-back after a drag, the alignment after a tap. A transition takes roughly 6× this — drop to ~`0.04` for a snappy pager, raise for a lazier one. Clamped `[0.02, 1.0]`. |
 | `CurrentDay` | today | **Two-way**: the leftmost visible day. Updates as you scroll/page; setting it scrolls there. |
 | `Theme` | built-in | `ScheduleViewTheme` — colors, fonts, and `TimeRailWidth` / `HeaderHeight`. |
 | `SkiaRenderer` | built-in | Skia-native painter — see [Custom rendering](#custom-rendering). |
@@ -189,7 +193,27 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 
 `ScrollToTimeAsync(timeOfDay, animated)` scrolls a time to the top.
 
-_Not yet wired: all-day bars, and `HeaderMode` `Linked`/`None`._
+In one-day mode the header band looks like this — the date sits over the hour rail, the rest of the
+band holds the day's all-day bars, or its summary when there are none:
+
+```
+┌──────────┬─────────────────────────────────┐
+│   MON    │  [ Holiday ..................  ] │  ← all-day bars, when the day has any
+│    4     │  3 appointments                  │  ← otherwise the summary line
+└──────────┴─────────────────────────────────┘
+```
+
+The band is a **carousel of day pages**, each as wide as the viewport: at rest one page fills it, and a
+swipe slides the whole band so the next day's date and all-day bars travel in from the right.
+
+Override `InfiniteScheduleRenderer.DrawSingleDayHeader` to repaint a page yourself — it's called once
+per page in flight (`DrawSingleDayDate` / `DrawSingleDayPersons` are separate overridable pieces, and
+the bars still route through `DrawAllDayBar`). Paint only the page's own span, `DateArea.Left` to
+`ContentArea.Right`, or you'll wipe out the page sliding in behind it. The context carries the laid-out
+rects plus a `ScheduleDaySummary` with the raw counts, if you'd rather compose the text than take
+`SummaryText`.
+
+_Not yet wired: `HeaderMode` `Linked`/`None`._
 
 ### `ScheduleView` vs `InfiniteScheduleView`
 
@@ -216,7 +240,7 @@ your **day axis** behaves and which stack you can take on.
 | Intraday blocks, per-person sub-columns, tap / long-press, `TypingItem`, `HoldingSchedule`, pinch-zoom, `ScrollToTimeAsync` | ✅ | ✅ |
 | Long-press quick-action menu (`ItemActionsProvider`) | ✅ | ✅ |
 | Infinite / unbounded horizontal day scroll | ➖ (fixed range; wrap in a `CarouselView` to page — see `CarouselSchedulePage`) | ✅ (built in; `PagingEnabled`, `CurrentDay`, `VisibleRangeChanged`) |
-| **All-day / cross-date bars** | ✅ | ❌ not yet |
+| **All-day / cross-date bars** | ✅ | ✅ (`ShowAllDay`; folded into the header band in one-day mode) |
 | **`HeaderMode` `Linked` / `None`** (external glass header via `ScheduleHeaderView`) | ✅ | ❌ `Inhouse` only |
 | **Working-time lock** (`StartLockHour` / `EndLockHour`) | ✅ | ✅ |
 | `HourHeight` range | `[24, 200]` | `[24, 300]` |
@@ -238,12 +262,12 @@ your **day axis** behaves and which stack you can take on.
 - The date domain is **large or unbounded**, making a carousel's page management awkward.
 - You want **GPU-smooth 60 fps** pan / fling / pinch with per-frame cost that stays flat regardless of how far you've scrolled.
 - You ship **iOS + Android only** and can take the SkiaSharp 3.x dependency and verify on a device.
-- You don't (yet) need all-day bars or a linked/none header.
+- You don't (yet) need a linked/none header.
 
 **Migrating `ScheduleView` → `InfiniteScheduleView`:** member names are largely identical, so swapping the type is
 mostly mechanical. Replace `StartDay`/`EndDay` with `AnchorDay` (+ optional `MinDay`/`MaxDay`), move any custom
 painting from `ScheduleViewRenderer` (`ICanvas`) to `InfiniteScheduleRenderer` (`SkiaRenderer`, `SKCanvas`), add
-`.UseSkiaSharp()`, and drop reliance on all-day bars / `Linked` headers until they land.
+`.UseSkiaSharp()`, and drop reliance on `Linked` headers until they land.
 
 ### `ScheduleHeaderView`
 

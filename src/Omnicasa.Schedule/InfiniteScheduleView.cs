@@ -53,8 +53,8 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Speed below which a fling is treated as stopped (logical px/s).</summary>
     private const double FlingStopSpeed = 30;
 
-    /// <summary>Time constant (s) of the critically damped spring that settles the horizontal offset.</summary>
-    private const double SettleTau = 0.11;
+    /// <summary>Default time constant (s) of the critically damped spring that settles the horizontal offset.</summary>
+    private const double DefaultSettleTime = 0.07;
 
     /// <summary>Time constant (s) of the release-velocity average: samples older than this fade out.</summary>
     private const double VelocityTau = 0.05;
@@ -64,6 +64,9 @@ public sealed class InfiniteScheduleView : ContentView
 
     /// <summary>Finger travel (logical px) before a drag commits to a single axis.</summary>
     private const double PanLockThreshold = 10;
+
+    /// <summary>Travel (logical px) under which a finger that caught momentum counts as a stop, not a gesture.</summary>
+    private const double CatchStopTravel = 24;
 
     /// <summary>Minute granularity that block drags/resizes snap to.</summary>
     private const double SnapMinutes = 15;
@@ -85,6 +88,12 @@ public sealed class InfiniteScheduleView : ContentView
 
     /// <summary>Time constant (s) of the ease that grows/shrinks the all-day panel between days.</summary>
     private const double AllDayResizeTau = 0.09;
+
+    /// <summary>Height of the person-initials row along the bottom of the one-day header band.</summary>
+    private const float SingleDayPersonRowHeight = 18f;
+
+    /// <summary>Day pages the one-day header keeps laid out: the current one and the one swiping in.</summary>
+    private const int SingleDayPageCount = 2;
 
     /// <summary>Bindable property for <see cref="ItemsSource"/>.</summary>
     public static readonly BindableProperty ItemsSourceProperty =
@@ -113,6 +122,15 @@ public sealed class InfiniteScheduleView : ContentView
             typeof(InfiniteScheduleView),
             true,
             propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnDataChanged());
+
+    /// <summary>Bindable property for <see cref="SingleDayHeader"/>.</summary>
+    public static readonly BindableProperty SingleDayHeaderProperty =
+        BindableProperty.Create(
+            nameof(SingleDayHeader),
+            typeof(bool),
+            typeof(InfiniteScheduleView),
+            true,
+            propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLayoutChanged());
 
     /// <summary>Bindable property for <see cref="HourHeight"/>.</summary>
     public static readonly BindableProperty HourHeightProperty =
@@ -207,6 +225,15 @@ public sealed class InfiniteScheduleView : ContentView
             typeof(InfiniteScheduleView),
             0.5,
             coerceValue: (_, v) => Math.Clamp((double)v, 0.05, 5.0));
+
+    /// <summary>Bindable property for <see cref="SettleTime"/>.</summary>
+    public static readonly BindableProperty SettleTimeProperty =
+        BindableProperty.Create(
+            nameof(SettleTime),
+            typeof(double),
+            typeof(InfiniteScheduleView),
+            DefaultSettleTime,
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.02, 1.0));
 
     /// <summary>Bindable property for <see cref="MaxFlingSpeed"/>.</summary>
     public static readonly BindableProperty MaxFlingSpeedProperty =
@@ -328,7 +355,12 @@ public sealed class InfiniteScheduleView : ContentView
     // Items indexed by the day(s) they touch, so a strip re-record only scans the visible window.
     private readonly Dictionary<DateOnly, List<IScheduleItem>> itemsByDay = new Dictionary<DateOnly, List<IScheduleItem>>();
 
+    // One-day header only: the day pages currently in flight (see EnsureSingleDayPages).
+    private readonly List<SingleDayPage> singleDayPages = new List<SingleDayPage>(SingleDayPageCount);
+
     private List<IScheduleItem> items = new List<IScheduleItem>();
+
+    private Func<ScheduleDaySummary, string>? daySummaryFormatter;
 
     // Owned scroll state, in logical pixels. Horizontal is measured from AnchorDay's left edge.
     private double horizontalOffset;
@@ -546,6 +578,31 @@ public sealed class InfiniteScheduleView : ContentView
         ResizeEnd,
     }
 
+    /// <summary>One day's worth of one-day-header content: the day and its own all-day bars.</summary>
+    private readonly struct SingleDayPage
+    {
+        /// <summary>Day index relative to <see cref="AnchorDay"/>.</summary>
+        public int DayIndex { get; init; }
+
+        /// <summary>The day's all-day bars, packed on their own lanes.</summary>
+        public IReadOnlyList<AllDayBar> Bars { get; init; }
+
+        /// <summary>Lanes the bars occupy.</summary>
+        public int Lanes
+        {
+            get
+            {
+                int lanes = 0;
+                foreach (var bar in Bars)
+                {
+                    lanes = Math.Max(lanes, bar.Lane + 1);
+                }
+
+                return lanes;
+            }
+        }
+    }
+
     /// <summary>Appointments to render. Items implement <see cref="IScheduleItem"/>.</summary>
     public IEnumerable? ItemsSource
     {
@@ -568,6 +625,18 @@ public sealed class InfiniteScheduleView : ContentView
     {
         get => (bool)GetValue(ShowAllDayProperty);
         set => SetValue(ShowAllDayProperty, value);
+    }
+
+    /// <summary>
+    /// In one-day mode (<see cref="ViewMode"/> == 1), moves the date above the hour rail and gives the
+    /// rest of the band to the day's all-day bars — or, when the day has none, to the summary line from
+    /// <see cref="DaySummaryFormatter"/>. Off falls back to the day-column header used by the multi-day
+    /// modes. Restyle it by overriding <c>InfiniteScheduleRenderer.DrawSingleDayHeader</c>.
+    /// </summary>
+    public bool SingleDayHeader
+    {
+        get => (bool)GetValue(SingleDayHeaderProperty);
+        set => SetValue(SingleDayHeaderProperty, value);
     }
 
     /// <summary>Vertical size of one hour, in logical pixels.</summary>
@@ -678,6 +747,21 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Supplies long-press menu actions per item, for API parity. (Pending: menu not yet wired.)</summary>
     public Func<IScheduleItem, IReadOnlyList<ScheduleMenuAction>>? ItemActionsProvider { get; set; }
 
+    /// <summary>
+    /// Builds the one-day header's summary line (shown when the day has no all-day items). Set this to
+    /// localize it; null uses <see cref="ScheduleDaySummary.DefaultText"/> ("3 appointments" /
+    /// "Nothing planned"). Only consulted while <see cref="SingleDayHeader"/> is on.
+    /// </summary>
+    public Func<ScheduleDaySummary, string>? DaySummaryFormatter
+    {
+        get => daySummaryFormatter;
+        set
+        {
+            daySummaryFormatter = value;
+            Invalidate();
+        }
+    }
+
     /// <summary>Optional visual theme; a default theme is used when null.</summary>
     public ScheduleViewTheme? Theme
     {
@@ -720,6 +804,19 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(FlingDecelerationTimeProperty, value);
     }
 
+    /// <summary>
+    /// Time constant (s) of the spring that settles the day axis — the page transition after a flick,
+    /// the snap-back after a slow drag, and the alignment after a tap (default 0.07, clamped
+    /// [0.02, 1.0]). A transition takes roughly 6× this, so lower is snappier.
+    /// <see cref="FlingGain"/> steers free momentum, not this settle; in paging mode it only feeds the
+    /// spring's launch velocity, so this is the knob that makes paging faster.
+    /// </summary>
+    public double SettleTime
+    {
+        get => (double)GetValue(SettleTimeProperty);
+        set => SetValue(SettleTimeProperty, value);
+    }
+
     /// <summary>Upper bound on fling speed in logical px/s; caps very fast flicks (default 12000).</summary>
     public double MaxFlingSpeed
     {
@@ -737,6 +834,14 @@ public sealed class InfiniteScheduleView : ContentView
     private float BodyTop => HeaderHeight + allDayHeight;
 
     private int PersonCount => Persons is { Count: > 0 } p ? p.Count : 1;
+
+    // The one-day header is pinned to the viewport, so it labels the day filling most of it — not the
+    // (possibly half-scrolled) leftmost one.
+    private bool SingleDayHeaderActive => SingleDayHeader && ViewMode == 1;
+
+    private int HeaderDayIndex => SingleDayHeaderActive
+        ? InfiniteScheduleGeometry.DominantDay(horizontalOffset, dayWidth)
+        : InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth);
 
     private InfiniteScheduleRenderer ActiveRenderer => SkiaRenderer ?? InfiniteScheduleRenderer.Default;
 
@@ -861,6 +966,9 @@ public sealed class InfiniteScheduleView : ContentView
     private void MarkStripDirty()
     {
         stripDirty = true;
+
+        // Persons/renderer changes also move the all-day panel (the one-day band reserves a person row).
+        allDayDirty = true;
         Invalidate();
     }
 
@@ -1028,7 +1136,15 @@ public sealed class InfiniteScheduleView : ContentView
 
         // Size the all-day panel first: it eats into the body's height.
         EnsureStrip(bodyWidth, timeScale);
-        EnsureAllDayBars(bodyWidth);
+        if (SingleDayHeaderActive)
+        {
+            EnsureSingleDayPages();
+        }
+        else
+        {
+            EnsureAllDayBars(bodyWidth);
+        }
+
         StepAllDayHeight();
 
         float bodyTop = BodyTop;
@@ -1045,7 +1161,9 @@ public sealed class InfiniteScheduleView : ContentView
 
         skCanvas.Clear(ToSk(theme.Background));
 
-        ReportVisibleRange(InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth));
+        // Report the day the header is labelling, so a bound page title never disagrees with it
+        // mid-swipe (identical to the leftmost day outside one-day mode, and at rest in it).
+        ReportVisibleRange(HeaderDayIndex);
 
         float stripTx = railWidth - (float)horizontalOffset + (stripStartDay * dayWidth);
 
@@ -1073,10 +1191,18 @@ public sealed class InfiniteScheduleView : ContentView
         DrawHourRail(skCanvas, timeScale, railWidth, bodyTop, logicalH);
         DrawNowMarker(skCanvas, timeScale, railWidth, bodyTop, logicalW, logicalH, bodyWidth);
 
-        // Bars are laid out from the first visible day, so they need their own origin, not the strip's.
-        float allDayTx = railWidth - (float)horizontalOffset + (allDayFirstDay * dayWidth);
-        DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, allDayTx);
-        DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
+        if (SingleDayHeaderActive)
+        {
+            // One band: the date over the rail, the day's all-day bars (or its summary) beside it.
+            DrawSingleDayHeaderBand(skCanvas, railWidth, headerHeight, logicalW);
+        }
+        else
+        {
+            // Bars are laid out from the first visible day, so they need their own origin, not the strip's.
+            float allDayTx = railWidth - (float)horizontalOffset + (allDayFirstDay * dayWidth);
+            DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, allDayTx);
+            DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
+        }
 
         // The pop-in runs on the render loop; drop back to on-demand painting once it (and any
         // scroll/fling/pinch) is done, so the block always settles at full size.
@@ -1212,6 +1338,74 @@ public sealed class InfiniteScheduleView : ContentView
         allDayTargetHeight = lanes > 0 ? (lanes * AllDayLaneHeight) + AllDayPanelPadding : 0f;
     }
 
+    // One-day mode: the band is a carousel of day pages, so every page in flight needs its own bars
+    // (packed against that day alone, from its own lane 0). Only the window they cover is cached —
+    // the band's height follows the dominant page and is refreshed every frame.
+    private void EnsureSingleDayPages()
+    {
+        int firstDay = InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth);
+
+        if (allDayDirty || firstDay != allDayFirstDay || allDayDayCount != SingleDayPageCount)
+        {
+            allDayDirty = false;
+            allDayFirstDay = firstDay;
+            allDayDayCount = SingleDayPageCount;
+            allDayBars = Array.Empty<AllDayBar>();
+            singleDayPages.Clear();
+
+            for (int i = 0; i < SingleDayPageCount; i++)
+            {
+                int dayIndex = firstDay + i;
+                var date = DateOnly.FromDateTime(AnchorDay.Date.AddDays(dayIndex));
+                singleDayPages.Add(new SingleDayPage
+                {
+                    DayIndex = dayIndex,
+                    Bars = LayoutDayBars(date),
+                });
+            }
+        }
+
+        // The band sizes to the page that owns the viewport; a neighbour swiping past must not
+        // inflate it, and the ease is paused mid-swipe anyway (see StepAllDayHeight).
+        int lanes = 0;
+        int dominant = HeaderDayIndex;
+        foreach (var page in singleDayPages)
+        {
+            if (page.DayIndex == dominant)
+            {
+                lanes = page.Lanes;
+                break;
+            }
+        }
+
+        float stack = lanes > 0 ? (lanes * AllDayLaneHeight) + AllDayPanelPadding : 0f;
+
+        // The band already owns the header row, so it only grows past it when the lanes (plus the
+        // person row below them) need more than that row can hold — one all-day bar costs nothing.
+        float personRow = Persons is { Count: > 0 } ? SingleDayPersonRowHeight : 0f;
+        allDayTargetHeight = Math.Max(0f, stack + personRow - HeaderHeight);
+    }
+
+    // The all-day bars of one day, packed on their own (single-column) lanes.
+    private IReadOnlyList<AllDayBar> LayoutDayBars(DateOnly date)
+    {
+        if (!ShowAllDay || !itemsByDay.TryGetValue(date, out var dayItems))
+        {
+            return Array.Empty<AllDayBar>();
+        }
+
+        var spanning = new List<IScheduleItem>();
+        foreach (var item in dayItems)
+        {
+            if (AllDayLayout.IsSpanning(item))
+            {
+                spanning.Add(item);
+            }
+        }
+
+        return spanning.Count == 0 ? Array.Empty<AllDayBar>() : AllDayLayout.Layout(spanning, date, 1);
+    }
+
     // Eases the panel toward its target height. Days carry different lane counts, so without this
     // the grid would jump every time you swipe onto a day with (or without) an all-day item.
     private void StepAllDayHeight()
@@ -1329,6 +1523,129 @@ public sealed class InfiniteScheduleView : ContentView
         using var text = new SKPaint { Color = ToSk(theme.Muted), IsAntialias = true };
         using var font = new SKFont { Size = (float)theme.HourLabelFontSize };
         skCanvas.DrawText("all-day", railWidth - 6, top + AllDayLaneHeight - 5f, SKTextAlign.Right, font, text);
+    }
+
+    // One-day mode: the header and the all-day panel are one band, drawn as a carousel of day pages —
+    // date above the hour rail, its all-day bars (or summary line) right of it. A page is as wide as
+    // the viewport, so at rest exactly one fills the band and its neighbours sit off-screen; during a
+    // swipe the whole band travels and the next day slides in.
+    private void DrawSingleDayHeaderBand(SKCanvas skCanvas, float railWidth, float headerHeight, float logicalW)
+    {
+        allDayHitMap.Clear();
+
+        float band = headerHeight + allDayHeight;
+        skCanvas.Save();
+        skCanvas.ClipRect(new SKRect(0, 0, logicalW, band));
+
+        // Page pitch is the whole viewport (rail included), so the date lands over the rail at rest.
+        double pages = dayWidth > 0 ? horizontalOffset / dayWidth : 0;
+        foreach (var page in singleDayPages)
+        {
+            float left = (float)((page.DayIndex - pages) * logicalW);
+            if (left >= logicalW || left + logicalW <= 0)
+            {
+                continue;
+            }
+
+            DrawSingleDayPage(skCanvas, page, left, railWidth, logicalW, band);
+        }
+
+        skCanvas.Restore();
+    }
+
+    private void DrawSingleDayPage(SKCanvas skCanvas, SingleDayPage page, float left, float railWidth, float logicalW, float band)
+    {
+        var theme = ActiveTheme;
+        var day = AnchorDay.Date.AddDays(page.DayIndex);
+        var date = DateOnly.FromDateTime(day);
+
+        var persons = Persons is { Count: > 0 } p
+            ? (p as IReadOnlyList<IPerson> ?? new List<IPerson>(p))
+            : null;
+        float personRow = persons is null ? 0f : SingleDayPersonRowHeight;
+
+        var dateArea = new SKRect(left, 0, left + railWidth, band - personRow);
+        var contentArea = new SKRect(left + railWidth, 0, left + logicalW, band - personRow);
+        var personArea = persons is null
+            ? SKRect.Empty
+            : new SKRect(contentArea.Left, band - personRow, contentArea.Right, band);
+
+        var bars = new List<InfiniteAllDayBlock>(page.Bars.Count);
+        if (page.Bars.Count > 0)
+        {
+            float stack = page.Lanes * AllDayLaneHeight;
+            float top = contentArea.Top + Math.Max(2f, (contentArea.Height - stack) / 2f);
+
+            foreach (var bar in page.Bars)
+            {
+                float y = top + (bar.Lane * AllDayLaneHeight);
+                var rect = new SKRect(
+                    contentArea.Left + 6,
+                    y + 2f,
+                    contentArea.Right - 6,
+                    y + AllDayLaneHeight - 2f);
+
+                bars.Add(new InfiniteAllDayBlock
+                {
+                    Rect = rect,
+                    Color = ToSk(bar.Item.Color ?? theme.Accent),
+                    Theme = theme,
+                    Title = bar.Item.Title,
+                    ContinuesLeft = DateOnly.FromDateTime(bar.Item.Start) < date,
+                    ContinuesRight = AllDayLayout.EndDateOf(bar.Item) > date,
+                    Item = bar.Item,
+                });
+
+                allDayHitMap.Add((bar.Item, rect));
+            }
+        }
+
+        var summary = new ScheduleDaySummary
+        {
+            Day = day,
+            IsToday = day == DateTime.Today,
+            AppointmentCount = TimedItemCount(day),
+            AllDayCount = bars.Count,
+        };
+
+        var ctx = new InfiniteSingleDayHeaderContext
+        {
+            Theme = theme,
+            Width = logicalW,
+            BandHeight = band,
+            Day = day,
+            IsToday = summary.IsToday,
+            DateArea = dateArea,
+            ContentArea = contentArea,
+            Persons = persons,
+            PersonColumnWidth = contentArea.Width / Math.Max(1, persons?.Count ?? 1),
+            PersonArea = personArea,
+            AllDayBars = bars,
+            Summary = summary,
+            SummaryText = (DaySummaryFormatter ?? ScheduleDaySummary.DefaultText)(summary),
+        };
+
+        ActiveRenderer.DrawSingleDayHeader(skCanvas, ctx);
+    }
+
+    // Items on the day that sit in the time grid (all-day / multi-day ones live in the band instead).
+    private int TimedItemCount(DateTime day)
+    {
+        if (!itemsByDay.TryGetValue(DateOnly.FromDateTime(day), out var dayItems))
+        {
+            return 0;
+        }
+
+        int count = 0;
+        foreach (var item in dayItems)
+        {
+            if (!AllDayLayout.IsSpanning(item))
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     private void DrawGrid(SKCanvas rc, TimeScale timeScale, int columnCount, float columnWidth, float height)
@@ -1787,7 +2104,9 @@ public sealed class InfiniteScheduleView : ContentView
         caughtMotion = flinging;
         StopMotion();
         pressPoint = p;
-        pressValid = p.X >= RailWidth && p.Y >= HeaderHeight;
+
+        // All-day bars sit inside the header band in one-day mode, so a press on one still counts.
+        pressValid = p.X >= RailWidth && (p.Y >= HeaderHeight || HitsAllDayBar(p));
         longFired = false;
         lockAxis = 0;
         velocityX = 0;
@@ -1906,7 +2225,17 @@ public sealed class InfiniteScheduleView : ContentView
         longPressTimer?.Stop();
         DecayReleaseVelocity();
 
-        if (lockAxis == 1 && PagingEnabled && Math.Abs(velocityX) >= PageFlickSpeed)
+        if (caughtMotion
+            && Math.Abs(lastPanTotalX) < CatchStopTravel
+            && Math.Abs(lastPanTotalY) < CatchStopTravel)
+        {
+            // Touching down to catch momentum means "stop here": the content froze under the finger and
+            // no tap fires; the lift only snaps onto the nearest column. A finger landing on a fast
+            // view always drags a few pixels along, and that short, fast slide otherwise reads as a
+            // flick — which paged a whole day instead of stopping.
+            SettleToDay();
+        }
+        else if (lockAxis == 1 && PagingEnabled && Math.Abs(velocityX) >= PageFlickSpeed)
         {
             // Horizontal flick → advance exactly one chunk (a screenful) in the flick direction.
             StartChunkFlick();
@@ -1920,14 +2249,6 @@ public sealed class InfiniteScheduleView : ContentView
         {
             // Vertical (or paging off) → free momentum, settles on a day.
             StartFling();
-        }
-        else if (caughtMotion)
-        {
-            // Touching down to catch momentum means "stop here" — no tap, and no settle animation
-            // either, or the view keeps sliding after the finger is already down. The next flick
-            // rounds the offset back onto a whole day, so resting mid-day self-corrects.
-            StopMotion();
-            Invalidate();
         }
         else
         {
@@ -2003,12 +2324,13 @@ public sealed class InfiniteScheduleView : ContentView
 
     // Starts the spring settle toward <paramref name="target"/>, carrying the finger's release velocity
     // (content moves opposite the finger) so the animation continues the gesture rather than restarting.
-    // The seed is capped at the no-overshoot limit for a critically damped spring, |x| / SettleTau.
+    // The seed is capped at the no-overshoot limit for a critically damped spring, |x| / SettleTime —
+    // hitting that cap is the fastest a transition can go, which is what FlingGain buys here.
     private void BeginSettle(double target)
     {
         double distance = target - horizontalOffset;
-        double seed = Math.Clamp(-velocityX, -MaxFlingSpeed, MaxFlingSpeed);
-        double limit = Math.Abs(distance) / SettleTau;
+        double seed = Math.Clamp(-velocityX * FlingGain, -MaxFlingSpeed, MaxFlingSpeed);
+        double limit = Math.Abs(distance) / SettleTime;
 
         // Only momentum heading toward the target is useful; a backwards flick would fight the spring.
         velocityX = seed * distance > 0 ? Math.Clamp(seed, -limit, limit) : 0;
@@ -2314,7 +2636,7 @@ public sealed class InfiniteScheduleView : ContentView
         {
             // Critically damped spring, exact analytic step: keeps the finger's velocity flowing into
             // the page transition instead of restarting from zero, so the hand-off has no visible stall.
-            double omega = 1.0 / SettleTau;
+            double omega = 1.0 / SettleTime;
             double x = horizontalOffset - settleTargetH;
             double c = velocityX + (omega * x);
             double e = Math.Exp(-omega * dt);
@@ -2450,6 +2772,19 @@ public sealed class InfiniteScheduleView : ContentView
             }
         };
         return timer;
+    }
+
+    private bool HitsAllDayBar(Point p)
+    {
+        foreach (var (_, rect) in allDayHitMap)
+        {
+            if (rect.Contains((float)p.X, (float)p.Y))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Resolves a screen point to an item (or empty date/time) and raises the matching event.

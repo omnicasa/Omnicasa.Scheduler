@@ -56,11 +56,29 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Default time constant (s) of the critically damped spring that settles the horizontal offset.</summary>
     private const double DefaultSettleTime = 0.07;
 
-    /// <summary>Time constant (s) of the release-velocity average: samples older than this fade out.</summary>
-    private const double VelocityTau = 0.05;
+    /// <summary>Window (s) of gesture history the release-velocity fit uses; also the "finger came to rest" cutoff.</summary>
+    private const double VelocityHorizon = 0.1;
 
-    /// <summary>A finger resting this long (s) before lifting has no momentum left, so release doesn't fling.</summary>
-    private const double VelocityIdleTimeout = 0.09;
+    /// <summary>Time constant (s) of the spring that returns an overscrolled body to its edge.</summary>
+    private const double BounceTime = 0.13;
+
+    /// <summary>Cap (logical px/s) on the momentum a fling carries into the edge bounce, bounding the overshoot.</summary>
+    private const double MaxBounceSpeed = 2000;
+
+    /// <summary>Seconds the scroll indicator stays at full opacity after vertical motion stops.</summary>
+    private const double IndicatorHoldTime = 0.45;
+
+    /// <summary>Seconds the scroll indicator takes to fade out.</summary>
+    private const double IndicatorFadeTime = 0.3;
+
+    /// <summary>Thickness of the scroll indicator thumb in logical pixels.</summary>
+    private const float IndicatorWidth = 3f;
+
+    /// <summary>Gap between the scroll indicator and the right edge, in logical pixels.</summary>
+    private const float IndicatorInset = 2f;
+
+    /// <summary>Shortest the scroll indicator thumb may shrink to, in logical pixels.</summary>
+    private const float IndicatorMinLength = 36f;
 
     /// <summary>Finger travel (logical px) before a drag commits to a single axis.</summary>
     private const double PanLockThreshold = 10;
@@ -214,7 +232,7 @@ public sealed class InfiniteScheduleView : ContentView
             nameof(FlingGain),
             typeof(double),
             typeof(InfiniteScheduleView),
-            1.4,
+            1.0,
             coerceValue: (_, v) => Math.Max(0.0, (double)v));
 
     /// <summary>Bindable property for <see cref="FlingDecelerationTime"/>.</summary>
@@ -358,6 +376,12 @@ public sealed class InfiniteScheduleView : ContentView
     // One-day header only: the day pages currently in flight (see EnsureSingleDayPages).
     private readonly List<SingleDayPage> singleDayPages = new List<SingleDayPage>(SingleDayPageCount);
 
+    // Release velocity comes from a least-squares fit over recent samples, not a running average:
+    // touch samples arrive unevenly, and an average turns identical gestures into different flings.
+    private readonly VelocityTracker trackerX = new VelocityTracker();
+
+    private readonly VelocityTracker trackerY = new VelocityTracker();
+
     private List<IScheduleItem> items = new List<IScheduleItem>();
 
     private Func<ScheduleDaySummary, string>? daySummaryFormatter;
@@ -426,11 +450,17 @@ public sealed class InfiniteScheduleView : ContentView
 
     private double lastPanTotalY;
 
-    private double panSampleSeconds;
-
     private double velocityX;
 
     private double velocityY;
+
+    // True while the body is springing back from an overscroll (a sub-state of flinging, like settling).
+    private bool bouncingY;
+
+    private double bounceTargetY;
+
+    // Clock time the body last moved vertically, driving the scroll indicator's fade-out (NaN = hidden).
+    private double indicatorMotionSeconds = double.NaN;
 
     private bool panning;
 
@@ -790,7 +820,12 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(CurrentDayProperty, value);
     }
 
-    /// <summary>Flick launch multiplier; higher = faster, further scrolling (default 1.4, min 0).</summary>
+    /// <summary>
+    /// Flick launch multiplier; higher = faster, further scrolling (default 1.0, min 0). The default
+    /// hands the finger's measured speed to the content unchanged, which is what makes the release
+    /// feel continuous — anything else changes speed at the instant of the lift, and the hand reads
+    /// that as slipping. Raise it only to exaggerate paging, not to lengthen flings.
+    /// </summary>
     public double FlingGain
     {
         get => (double)GetValue(FlingGainProperty);
@@ -1190,6 +1225,7 @@ public sealed class InfiniteScheduleView : ContentView
         DrawOverlays(skCanvas, railWidth, bodyTop, logicalW, logicalH);
         DrawHourRail(skCanvas, timeScale, railWidth, bodyTop, logicalH);
         DrawNowMarker(skCanvas, timeScale, railWidth, bodyTop, logicalW, logicalH, bodyWidth);
+        DrawScrollIndicator(skCanvas, timeScale, bodyTop, logicalW, bodyHeight);
 
         if (SingleDayHeaderActive)
         {
@@ -1204,12 +1240,40 @@ public sealed class InfiniteScheduleView : ContentView
             DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
         }
 
-        // The pop-in runs on the render loop; drop back to on-demand painting once it (and any
-        // scroll/fling/pinch) is done, so the block always settles at full size.
-        if (!overlayNeedsFrame && !flinging && !panning && !inPinch && canvas.HasRenderLoop)
+        // The pop-in and the indicator fade run on the render loop; drop back to on-demand painting
+        // once they (and any scroll/fling/pinch) are done, so the block always settles at full size.
+        if (!overlayNeedsFrame && !flinging && !panning && !inPinch
+            && IndicatorOpacity() <= 0f && canvas.HasRenderLoop)
         {
             canvas.HasRenderLoop = false;
         }
+    }
+
+    // Native-style scroll indicator down the right edge of the body. It exists mostly so a scroll
+    // reads as a scroll: without it the canvas gives no feedback about position in the day.
+    private void DrawScrollIndicator(SKCanvas skCanvas, TimeScale timeScale, float bodyTop, float logicalW, float bodyHeight)
+    {
+        float opacity = IndicatorOpacity();
+        if (opacity <= 0f || bodyHeight <= 0)
+        {
+            return;
+        }
+
+        var (min, max) = timeScale.ScrollRange(bodyHeight);
+        if (ScrollPhysics.IndicatorThumb(scrollY, min, max, bodyHeight, IndicatorMinLength) is not
+            (double top, double length))
+        {
+            return;
+        }
+
+        var color = ToSk(ActiveTheme.Muted).WithAlpha((byte)Math.Round(140 * opacity));
+        float right = logicalW - IndicatorInset;
+        float y = bodyTop + (float)top;
+        var rect = new SKRect(right - IndicatorWidth, y, right, y + (float)length);
+
+        using var paint = new SKPaint { Color = color, IsAntialias = true, Style = SKPaintStyle.Fill };
+        using var rr = new SKRoundRect(rect, IndicatorWidth / 2f);
+        skCanvas.DrawRoundRect(rr, paint);
     }
 
     private void EnsureStrip(float bodyWidth, TimeScale timeScale)
@@ -2116,10 +2180,19 @@ public sealed class InfiniteScheduleView : ContentView
         velocityY = 0;
         panning = true;
         panStartHorizontal = horizontalOffset;
-        panStartVertical = scrollY;
+
+        // Resume from the unbanded offset, not the resisted one: catching the body mid-bounce must
+        // keep the same pull under the finger instead of snapping the overscroll away.
+        float bodyHeight = (float)Height - BodyTop;
+        var (rangeMin, rangeMax) = BuildTimeScale().ScrollRange(bodyHeight);
+        panStartVertical = ScrollPhysics.RemoveRubberBand(scrollY, rangeMin, rangeMax, bodyHeight);
+
         lastPanTotalX = 0;
         lastPanTotalY = 0;
-        panSampleSeconds = clock.Elapsed.TotalSeconds;
+        trackerX.Clear();
+        trackerY.Clear();
+        trackerX.Add(clock.Elapsed.TotalSeconds, 0);
+        trackerY.Add(clock.Elapsed.TotalSeconds, 0);
 
         // Grabbing the holding ghost or the typing draft starts a block drag instead of a scroll.
         if (pressValid && HoldingSchedule is not null && HoldingScreenRect() is SKRect hr
@@ -2165,6 +2238,12 @@ public sealed class InfiniteScheduleView : ContentView
         double totalX = p.X - pressPoint.X;
         double totalY = p.Y - pressPoint.Y;
 
+        // Sample before the axis lock resolves: a fast flick can clear the threshold in one move, and
+        // the samples it discarded on the way are the ones that describe its speed.
+        double now = clock.Elapsed.TotalSeconds;
+        trackerX.Add(now, totalX);
+        trackerY.Add(now, totalY);
+
         // Commit to the dominant axis once the finger clearly moves (no diagonal wobble).
         if (lockAxis == 0)
         {
@@ -2179,30 +2258,20 @@ public sealed class InfiniteScheduleView : ContentView
             BeginRenderLoop();
         }
 
-        double now = clock.Elapsed.TotalSeconds;
-        double dt = Math.Max(now - panSampleSeconds, 1e-3);
-
-        // Time-weighted EMA: a fixed per-sample weight would hold the gesture's peak speed and read a
-        // fast-then-slow drag as a hard flick. Weighting by dt makes it track the last ~VelocityTau only.
-        double alpha = 1.0 - Math.Exp(-dt / VelocityTau);
         if (lockAxis == 1)
         {
-            double instX = (totalX - lastPanTotalX) / dt;
-            velocityX = (velocityX * (1 - alpha)) + (instX * alpha);
-            velocityY = 0;
             horizontalOffset = ClampHorizontal(panStartHorizontal - totalX);
         }
         else
         {
-            double instY = (totalY - lastPanTotalY) / dt;
-            velocityY = (velocityY * (1 - alpha)) + (instY * alpha);
-            velocityX = 0;
-            scrollY = ClampVerticalToView(panStartVertical - totalY);
+            // Track the finger unbanded, display the banded position: past an edge the content still
+            // follows the hand, just with growing resistance, instead of stopping dead against a wall.
+            scrollY = BandVertical(panStartVertical - totalY);
+            MarkVerticalMotion();
         }
 
         lastPanTotalX = totalX;
         lastPanTotalY = totalY;
-        panSampleSeconds = now;
         Invalidate();
     }
 
@@ -2226,7 +2295,7 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         longPressTimer?.Stop();
-        DecayReleaseVelocity();
+        ReadReleaseVelocity();
 
         if (caughtMotion
             && Math.Abs(lastPanTotalX) < CatchStopTravel
@@ -2269,24 +2338,22 @@ public sealed class InfiniteScheduleView : ContentView
         interaction = InteractionKind.None;
     }
 
-    // Momentum is whatever the finger was doing in the last VelocityTau before it lifted: fade the
-    // measured velocity across the gap since the final move sample, and drop it entirely once the
-    // finger has clearly come to rest (drag, hold, lift → no fling).
-    private void DecayReleaseVelocity()
+    // Momentum at the moment of release, fitted from the gesture's last VelocityHorizon of samples.
+    // The tracker returns zero once those have gone stale, so drag-hold-lift never flings.
+    private void ReadReleaseVelocity()
     {
-        double gap = clock.Elapsed.TotalSeconds - panSampleSeconds;
-        if (gap >= VelocityIdleTimeout)
+        double now = clock.Elapsed.TotalSeconds;
+        velocityX = trackerX.Velocity(now, VelocityHorizon);
+        velocityY = trackerY.Velocity(now, VelocityHorizon);
+
+        // Only the locked axis carries momentum; the other one was never being scrolled.
+        if (lockAxis == 1)
+        {
+            velocityY = 0;
+        }
+        else if (lockAxis == 2)
         {
             velocityX = 0;
-            velocityY = 0;
-            return;
-        }
-
-        if (gap > 0)
-        {
-            double decay = Math.Exp(-gap / VelocityTau);
-            velocityX *= decay;
-            velocityY *= decay;
         }
     }
 
@@ -2338,6 +2405,7 @@ public sealed class InfiniteScheduleView : ContentView
         // Only momentum heading toward the target is useful; a backwards flick would fight the spring.
         velocityX = seed * distance > 0 ? Math.Clamp(seed, -limit, limit) : 0;
         velocityY = 0;
+        ArmVerticalBounce();
         settleTargetH = target;
         flinging = true;
         settling = true;
@@ -2353,7 +2421,24 @@ public sealed class InfiniteScheduleView : ContentView
         if (Math.Abs(target - horizontalOffset) < 0.5)
         {
             horizontalOffset = target;
-            StopMotion();
+
+            // The day axis is already aligned, but the body can still be held past an edge (a tap
+            // during a bounce) — that has to spring back rather than freeze there. Nothing is being
+            // flung here, so the spring starts from rest.
+            velocityX = 0;
+            velocityY = 0;
+            if (ArmVerticalBounce())
+            {
+                settling = false;
+                flinging = true;
+                lastFrameSeconds = clock.Elapsed.TotalSeconds;
+                BeginRenderLoop();
+            }
+            else
+            {
+                StopMotion();
+            }
+
             Invalidate();
             return;
         }
@@ -2597,10 +2682,31 @@ public sealed class InfiniteScheduleView : ContentView
         velocityX = Math.Clamp(-velocityX * FlingGain, -MaxFlingSpeed, MaxFlingSpeed);
         velocityY = Math.Clamp(-velocityY * FlingGain, -MaxFlingSpeed, MaxFlingSpeed);
 
+        // Released while still held past an edge: the spring takes over straight away, carrying
+        // whatever momentum the finger had into it.
+        ArmVerticalBounce();
+
         flinging = true;
         settling = false;
         lastFrameSeconds = clock.Elapsed.TotalSeconds;
         BeginRenderLoop();
+    }
+
+    // Arms the edge spring when the body is resting outside its scroll range. Returns true when a
+    // bounce is needed, so a caller that would otherwise go idle knows to keep stepping instead.
+    private bool ArmVerticalBounce()
+    {
+        var (min, max) = VerticalRange();
+        if (scrollY >= min - 0.5 && scrollY <= max + 0.5)
+        {
+            bouncingY = false;
+            return false;
+        }
+
+        bounceTargetY = scrollY < min ? min : max;
+        velocityY = Math.Clamp(velocityY, -MaxBounceSpeed, MaxBounceSpeed);
+        bouncingY = true;
+        return true;
     }
 
     // Advances momentum once per rendered frame (driven from OnPaintSurface), so motion is
@@ -2611,25 +2717,14 @@ public sealed class InfiniteScheduleView : ContentView
         double dt = Math.Clamp(now - lastFrameSeconds, 1e-3, 0.05);
         lastFrameSeconds = now;
 
+        StepVertical(dt);
+
         if (!settling)
         {
             horizontalOffset = ClampHorizontal(horizontalOffset + (velocityX * dt));
+            velocityX = ScrollPhysics.Decay(velocityX, FlingDecelerationTime, dt);
 
-            // Kill vertical momentum on contact with the wall — otherwise the fling keeps running
-            // (and the render loop with it) while the view is already pinned to the lock window.
-            double nextY = scrollY + (velocityY * dt);
-            scrollY = ClampVerticalToView(nextY);
-            if (Math.Abs(scrollY - nextY) > 0.5)
-            {
-                velocityY = 0;
-            }
-
-            // Frame-rate-independent exponential decay.
-            double decay = Math.Exp(-dt / FlingDecelerationTime);
-            velocityX *= decay;
-            velocityY *= decay;
-
-            if (Math.Abs(velocityX) < FlingStopSpeed && Math.Abs(velocityY) < FlingStopSpeed)
+            if (Math.Abs(velocityX) < FlingStopSpeed && !VerticalMoving())
             {
                 settling = true;
                 settleTargetH = ClampHorizontal(InfiniteScheduleGeometry.SnapToDay(horizontalOffset, dayWidth));
@@ -2637,23 +2732,64 @@ public sealed class InfiniteScheduleView : ContentView
         }
         else
         {
-            // Critically damped spring, exact analytic step: keeps the finger's velocity flowing into
-            // the page transition instead of restarting from zero, so the hand-off has no visible stall.
-            double omega = 1.0 / SettleTime;
-            double x = horizontalOffset - settleTargetH;
-            double c = velocityX + (omega * x);
-            double e = Math.Exp(-omega * dt);
+            // Critically damped spring: keeps the finger's velocity flowing into the page transition
+            // instead of restarting from zero, so the hand-off has no visible stall.
+            (horizontalOffset, velocityX) =
+                ScrollPhysics.SpringStep(horizontalOffset, velocityX, settleTargetH, SettleTime, dt);
 
-            horizontalOffset = settleTargetH + ((x + (c * dt)) * e);
-            velocityX = (c - (omega * (x + (c * dt)))) * e;
-
-            if (Math.Abs(settleTargetH - horizontalOffset) < 0.5 && Math.Abs(velocityX) < FlingStopSpeed)
+            if (Math.Abs(settleTargetH - horizontalOffset) < 0.5
+                && Math.Abs(velocityX) < FlingStopSpeed
+                && !VerticalMoving())
             {
                 horizontalOffset = settleTargetH;
                 StopMotion();
             }
         }
     }
+
+    // Advances the body's vertical momentum for one frame. Free momentum inside the scroll range;
+    // once it carries past an edge the spring takes over from exactly that point, so the content
+    // overshoots and eases back instead of stopping dead against a wall.
+    private void StepVertical(double dt)
+    {
+        if (bouncingY)
+        {
+            (scrollY, velocityY) = ScrollPhysics.SpringStep(scrollY, velocityY, bounceTargetY, BounceTime, dt);
+            MarkVerticalMotion();
+
+            if (Math.Abs(bounceTargetY - scrollY) < 0.5 && Math.Abs(velocityY) < FlingStopSpeed)
+            {
+                scrollY = bounceTargetY;
+                velocityY = 0;
+                bouncingY = false;
+            }
+
+            return;
+        }
+
+        if (Math.Abs(velocityY) < FlingStopSpeed)
+        {
+            velocityY = 0;
+            return;
+        }
+
+        double nextY = scrollY + (velocityY * dt);
+        var (min, max) = VerticalRange();
+        scrollY = nextY;
+        MarkVerticalMotion();
+
+        if (nextY < min || nextY > max)
+        {
+            bounceTargetY = nextY < min ? min : max;
+            velocityY = Math.Clamp(velocityY, -MaxBounceSpeed, MaxBounceSpeed);
+            bouncingY = true;
+            return;
+        }
+
+        velocityY = ScrollPhysics.Decay(velocityY, FlingDecelerationTime, dt);
+    }
+
+    private bool VerticalMoving() => bouncingY || Math.Abs(velocityY) >= FlingStopSpeed;
 
     private void BeginRenderLoop()
     {
@@ -2667,12 +2803,13 @@ public sealed class InfiniteScheduleView : ContentView
     {
         flinging = false;
         settling = false;
+        bouncingY = false;
         velocityX = 0;
         velocityY = 0;
 
         // Drop back to on-demand painting so an idle view doesn't keep the GPU busy — unless the
-        // draft pop-in is still playing, which also needs the loop.
-        if (!panning && !OverlayAnimating() && canvas.HasRenderLoop)
+        // draft pop-in or the indicator fade is still playing, which also need the loop.
+        if (!panning && !OverlayAnimating() && IndicatorOpacity() <= 0f && canvas.HasRenderLoop)
         {
             canvas.HasRenderLoop = false;
         }
@@ -2693,6 +2830,38 @@ public sealed class InfiniteScheduleView : ContentView
     {
         float bodyHeight = (float)Height - BodyTop;
         return ClampVertical(offset, bodyHeight, BuildTimeScale());
+    }
+
+    // Scrollable range of the body for the current viewport and lock window.
+    private (double Min, double Max) VerticalRange()
+        => BuildTimeScale().ScrollRange((float)Height - BodyTop);
+
+    // Resisted position for an unbanded offset — identity while the offset is in range.
+    private double BandVertical(double raw)
+    {
+        float bodyHeight = (float)Height - BodyTop;
+        var (min, max) = BuildTimeScale().ScrollRange(bodyHeight);
+        return ScrollPhysics.ApplyRubberBand(raw, min, max, bodyHeight);
+    }
+
+    private void MarkVerticalMotion() => indicatorMotionSeconds = clock.Elapsed.TotalSeconds;
+
+    // Scroll indicator alpha: solid while the body moves and for a beat after, then fades.
+    private float IndicatorOpacity()
+    {
+        if (double.IsNaN(indicatorMotionSeconds))
+        {
+            return 0f;
+        }
+
+        double age = clock.Elapsed.TotalSeconds - indicatorMotionSeconds;
+        if (age <= IndicatorHoldTime)
+        {
+            return 1f;
+        }
+
+        double t = (age - IndicatorHoldTime) / IndicatorFadeTime;
+        return t >= 1.0 ? 0f : (float)(1.0 - t);
     }
 
     // Mirror the current scroll position onto the bindable VerticalOffset (for synced siblings),

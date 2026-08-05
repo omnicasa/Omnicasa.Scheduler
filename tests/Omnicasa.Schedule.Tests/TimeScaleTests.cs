@@ -159,4 +159,48 @@ public class TimeScaleTests
         Assert.Equal(TimeSpan.Zero, scale.TimeForY(0));
         Assert.Equal(TimeSpan.Zero, scale.TimeForY(-100));
     }
+
+    [Fact]
+    public void ScrollRange_Unlocked_SpansZeroToContentMinusViewport()
+    {
+        var scale = new TimeScale(60);
+        var (min, max) = scale.ScrollRange(400);
+
+        Assert.Equal(0, min, precision: 3);
+        Assert.Equal((60 * 24) - 400, max, precision: 3);
+    }
+
+    [Fact]
+    public void ScrollRange_Locked_StopsAtTheWindowEdges()
+    {
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        var (min, max) = scale.ScrollRange(400);
+
+        Assert.Equal(480, min, precision: 3);
+        Assert.Equal(680, max, precision: 3);
+    }
+
+    [Fact]
+    public void ScrollRange_WindowShorterThanViewport_CollapsesToThePinnedOffset()
+    {
+        var scale = new TimeScale(60, lockStartHour: 8, lockEndHour: 18);
+        var (min, max) = scale.ScrollRange(800);
+
+        Assert.Equal(380, min, precision: 3);
+        Assert.Equal(min, max, precision: 3);
+    }
+
+    [Theory]
+    [InlineData(0, 400)]
+    [InlineData(8, 400)]
+    [InlineData(8, 800)]
+    public void ScrollRange_AgreesWithClampOffset(float lockStart, float viewport)
+    {
+        // The canvas rubber-bands against these edges, so they must be the same ones ClampOffset uses.
+        var scale = new TimeScale(60, lockStartHour: lockStart, lockEndHour: lockStart == 0 ? 24 : 18);
+        var (min, max) = scale.ScrollRange(viewport);
+
+        Assert.Equal(min, scale.ClampOffset(-99999, viewport), precision: 3);
+        Assert.Equal(max, scale.ClampOffset(99999, viewport), precision: 3);
+    }
 }

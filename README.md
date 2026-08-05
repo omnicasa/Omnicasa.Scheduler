@@ -160,6 +160,14 @@ recorded once into an `SKPicture`, re-recorded only near the buffer edge), keepi
 > Requires **SkiaSharp.Views.Maui 3.x** (2.88 has no iOS `SKGLView` handler). Register it with
 > `.UseSkiaSharp()` in `MauiProgram`. iOS-simulator GL can be unreliable — test on a device.
 
+Owning the canvas means owning the scrolling, so the vertical axis reimplements what a native
+`ScrollView` gives `ScheduleView` for free: **rubber-band overscroll** with a spring back to the edge
+(a fling that runs past the end overshoots and eases in rather than stopping dead), a **release
+velocity fitted by least squares** over the last 100 ms of the gesture rather than averaged — so
+identical flicks travel the same distance whatever the touch sample cadence — and a **scroll
+indicator** that fades out after the body comes to rest. The physics is in `ScrollPhysics` /
+`VelocityTracker`, both plain C# and unit-tested.
+
 It mirrors much of the `ScheduleView` API (same member names) so callers can largely swap the type;
 `StartDay`/`EndDay` are replaced by `AnchorDay` + optional `MinDay`/`MaxDay`.
 
@@ -180,7 +188,7 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 | `HoldingSchedule` | `null` | "Held" block — drag to reposition; shows a leash back to its origin; reports `HoldingDropped`. |
 | `TopContentInset` / `BottomContentInset` | `0` | Blank space above midnight / below 24:00 inside the body. |
 | `PagingEnabled` | `true` | Horizontal gestures: a slow drag snaps to the nearest **day**; a flick pages exactly **one screenful** (`ViewMode` days) carousel-style. |
-| `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.4` / `0.5` / `12000` | Momentum tuning for the free (vertical) fling. In paging mode there is no free momentum — `FlingGain` only feeds the page spring's launch velocity, so use `SettleTime` to make paging faster. |
+| `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.0` / `0.5` / `12000` | Momentum tuning for the free (vertical) fling. `FlingGain` of `1.0` hands the finger's measured speed to the content unchanged; `FlingDecelerationTime` of `0.5` s is the `UIScrollView` deceleration curve. In paging mode there is no free momentum — `FlingGain` only feeds the page spring's launch velocity, so use `SettleTime` to make paging faster. |
 | `SettleTime` | `0.07` | Time constant (s) of the spring that settles the day axis: the page transition after a flick, the snap-back after a drag, the alignment after a tap. A transition takes roughly 6× this — drop to ~`0.04` for a snappy pager, raise for a lazier one. Clamped `[0.02, 1.0]`. |
 | `CurrentDay` | today | **Two-way**: the leftmost visible day. Updates as you scroll/page; setting it scrolls there. |
 | `Theme` | built-in | `ScheduleViewTheme` — colors, fonts, and `TimeRailWidth` / `HeaderHeight`. |
@@ -231,7 +239,7 @@ your **day axis** behaves and which stack you can take on.
 | **Input** | MAUI gesture recognizers (tap, long-press, pinch) + `ScrollView` | One unified `SKGLView.Touch` state machine arbitrating scroll / tap / drag / **two-finger pinch** and day-snap paging |
 | **Extra dependency** | None beyond MAUI | **SkiaSharp.Views.Maui 3.x** + `.UseSkiaSharp()` in `MauiProgram` |
 | **Custom rendering** | `Renderer` — `ScheduleViewRenderer` over `ICanvas` | `SkiaRenderer` — `InfiniteScheduleRenderer` over `SKCanvas` (the `ICanvas` `Renderer` is accepted for parity but **ignored**) |
-| **Platforms** | Any MAUI head; the class also compiles for the **net9.0 headless** target, so its drawables/logic are unit-tested on a desktop host | **iOS + Android only** (`#if ANDROID || IOS`). Simulator GL can be flaky — test on a device. Only the pure day-axis math (`InfiniteScheduleGeometry`) is headless-testable |
+| **Platforms** | Any MAUI head; the class also compiles for the **net9.0 headless** target, so its drawables/logic are unit-tested on a desktop host | **iOS + Android only** (`#if ANDROID || IOS`). Simulator GL can be flaky — test on a device. Only its pure math (`InfiniteScheduleGeometry`, `ScrollPhysics`, `VelocityTracker`) is headless-testable |
 
 #### Feature parity
 
@@ -243,6 +251,7 @@ your **day axis** behaves and which stack you can take on.
 | **All-day / cross-date bars** | ✅ | ✅ (`ShowAllDay`; folded into the header band in one-day mode) |
 | **`HeaderMode` `Linked` / `None`** (external glass header via `ScheduleHeaderView`) | ✅ | ❌ `Inhouse` only |
 | **Working-time lock** (`StartLockHour` / `EndLockHour`) | ✅ | ✅ |
+| **Vertical scroll feel** | Native `ScrollView` — platform momentum, overscroll and indicator, for free | Hand-rolled to match: rubber-band overscroll + edge spring, least-squares release velocity, fading indicator (`ScrollPhysics`) |
 | `HourHeight` range | `[24, 200]` | `[24, 300]` |
 | Default `ViewMode` | `7` (week) | `1` (day) |
 

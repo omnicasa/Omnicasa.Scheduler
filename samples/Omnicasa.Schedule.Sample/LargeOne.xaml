@@ -38,7 +38,7 @@
     <!-- Scroll-feel sliders -->
     <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto,*" ColumnSpacing="6" RowDefinitions="Auto">
       <Label Grid.Column="0" Text="Gain" VerticalOptions="Center" FontSize="12" />
-      <Slider x:Name="GainSlider" Grid.Column="1" Minimum="0.5" Maximum="4" Value="1.8"
+      <Slider x:Name="GainSlider" Grid.Column="1" Minimum="0.5" Maximum="4" Value="1"
               ValueChanged="OnGainChanged" />
       <Label Grid.Column="2" Text="Glide" VerticalOptions="Center" FontSize="12" />
       <Slider x:Name="GlideSlider" Grid.Column="3" Minimum="0.1" Maximum="1.5" Value="0.5"

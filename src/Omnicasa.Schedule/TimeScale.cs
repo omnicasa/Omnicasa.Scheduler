@@ -77,22 +77,36 @@ public readonly struct TimeScale
     public TimeSpan TimeForY(float y) => TimeSpan.FromHours(Math.Max(0, (y - TopPadding) / HourHeight));
 
     /// <summary>
-    /// Clamps a vertical scroll offset so the viewport stays inside the locked window. With no lock
-    /// this is the ordinary "0 to content height minus viewport" clamp.
+    /// The range of vertical scroll offsets that keeps the viewport inside the locked window. With no
+    /// lock this is the ordinary "0 to content height minus viewport". A canvas that owns its own
+    /// scrolling needs the edges themselves, not just a clamp, to rubber-band and bounce against them.
     /// </summary>
-    /// <param name="offset">Proposed scroll offset in logical pixels.</param>
     /// <param name="viewportHeight">Height of the scrolling viewport in logical pixels.</param>
-    /// <returns>The offset clamped to the scrollable range.</returns>
-    public double ClampOffset(double offset, float viewportHeight)
+    /// <returns>The lowest and highest in-range offsets; equal when the content does not scroll.</returns>
+    public (double Min, double Max) ScrollRange(float viewportHeight)
     {
         double contentMax = Math.Max(0, TotalHeight - viewportHeight);
         double lo = Math.Clamp(LockTop, 0, contentMax);
         double hi = Math.Clamp(LockBottom - viewportHeight, 0, contentMax);
 
         // Window shorter than the viewport: pin it centered rather than jamming it against one edge.
-        return hi <= lo
-            ? Math.Clamp((LockTop + LockBottom - viewportHeight) / 2, 0, contentMax)
-            : Math.Clamp(offset, lo, hi);
+        if (hi <= lo)
+        {
+            double pinned = Math.Clamp((LockTop + LockBottom - viewportHeight) / 2, 0, contentMax);
+            return (pinned, pinned);
+        }
+
+        return (lo, hi);
+    }
+
+    /// <summary>Clamps a vertical scroll offset to <see cref="ScrollRange"/>.</summary>
+    /// <param name="offset">Proposed scroll offset in logical pixels.</param>
+    /// <param name="viewportHeight">Height of the scrolling viewport in logical pixels.</param>
+    /// <returns>The offset clamped to the scrollable range.</returns>
+    public double ClampOffset(double offset, float viewportHeight)
+    {
+        var (min, max) = ScrollRange(viewportHeight);
+        return Math.Clamp(offset, min, max);
     }
 
     /// <summary>Returns the locked window's start on <paramref name="day"/> (midnight when unlocked).</summary>

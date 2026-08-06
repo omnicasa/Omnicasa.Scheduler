@@ -86,6 +86,9 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Travel (logical px) under which a finger that caught momentum counts as a stop, not a gesture.</summary>
     private const double CatchStopTravel = 24;
 
+    /// <summary>Gap (s) since the last stepped frame after which a motion flag is stale, not running.</summary>
+    private const double StaleMotionGap = 0.25;
+
     /// <summary>Minute granularity that block drags/resizes snap to.</summary>
     private const double SnapMinutes = 15;
 
@@ -2168,7 +2171,7 @@ public sealed class InfiniteScheduleView : ContentView
     {
         // Pressing while momentum is running "catches" it: stop, but remember so the release
         // settles to a day column and doesn't also fire a tap action (like a native list).
-        caughtMotion = flinging;
+        caughtMotion = MotionRunning;
         StopMotion();
         pressPoint = p;
 
@@ -2788,6 +2791,12 @@ public sealed class InfiniteScheduleView : ContentView
 
         velocityY = ScrollPhysics.Decay(velocityY, FlingDecelerationTime, dt);
     }
+
+    // StepFling only advances from OnPaintSurface, so a fling armed while the canvas stops painting —
+    // page pushed away, surface dropped — leaves `flinging` latched with no frames behind it. Without
+    // the staleness check catch-to-stop spends the next tap on that ghost instead of opening a block.
+    private bool MotionRunning
+        => flinging && clock.Elapsed.TotalSeconds - lastFrameSeconds < StaleMotionGap;
 
     private bool VerticalMoving() => bouncingY || Math.Abs(velocityY) >= FlingStopSpeed;
 

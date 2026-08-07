@@ -179,6 +179,39 @@ public class InfiniteScheduleGeometryTests
     }
 
     [Fact]
+    public void CellEmphasis_Span1_MatchesTheSingleDayCurve()
+    {
+        for (int step = -30; step <= 30; step++)
+        {
+            double d = step / 10.0;
+            Assert.Equal(InfiniteScheduleGeometry.CellEmphasis(d), InfiniteScheduleGeometry.CellEmphasis(d, 1), precision: 6);
+        }
+    }
+
+    [Fact]
+    public void CellEmphasis_TwoDaySpan_LightsBothDaysOfThePair()
+    {
+        // Settled on days 0|1: both are fully marked, and the fade runs over the day either side.
+        Assert.Equal(1.0, InfiniteScheduleGeometry.CellEmphasis(0, 2), precision: 3);
+        Assert.Equal(1.0, InfiniteScheduleGeometry.CellEmphasis(1, 2), precision: 3);
+        Assert.Equal(0.5, InfiniteScheduleGeometry.CellEmphasis(1.5, 2), precision: 3);
+        Assert.Equal(0.0, InfiniteScheduleGeometry.CellEmphasis(2, 2), precision: 3);
+        Assert.Equal(0.5, InfiniteScheduleGeometry.CellEmphasis(-0.5, 2), precision: 3);
+        Assert.Equal(0.0, InfiniteScheduleGeometry.CellEmphasis(-1, 2), precision: 3);
+    }
+
+    [Fact]
+    public void CellEmphasis_TwoDaySpan_MidSwipeKeepsTheSharedDayLit()
+    {
+        // Half-way from 1|2 to 2|3, day 2 belongs to both pairs, so it never dips.
+        double position = InfiniteScheduleGeometry.DayPosition(150, 100);
+        Assert.Equal(0.5, InfiniteScheduleGeometry.CellEmphasis(1 - position, 2), precision: 3);
+        Assert.Equal(1.0, InfiniteScheduleGeometry.CellEmphasis(2 - position, 2), precision: 3);
+        Assert.Equal(0.5, InfiniteScheduleGeometry.CellEmphasis(3 - position, 2), precision: 3);
+        Assert.Equal(0.0, InfiniteScheduleGeometry.CellEmphasis(4 - position, 2), precision: 3);
+    }
+
+    [Fact]
     public void ClampOffset_NullBounds_IsUnbounded()
     {
         Assert.Equal(-5000, InfiniteScheduleGeometry.ClampOffset(-5000, 300, 100, null, null), precision: 3);
@@ -226,6 +259,14 @@ public class InfiniteScheduleGeometryTests
     public void ChunkFlickTarget_NeverSettlesBehindTheFinger(double start, double current, bool forward, double expected)
     {
         Assert.Equal(expected, InfiniteScheduleGeometry.ChunkFlickTarget(start, current, 100, 1, forward), precision: 3);
+    }
+
+    [Fact]
+    public void ChunkFlickTarget_TwoDayMode_StepsOneDayNotTheWholePair()
+    {
+        // Two columns of 50 on screen, but a flick from day 1 lands on day 2 (1|2 → 2|3), not day 3.
+        Assert.Equal(100, InfiniteScheduleGeometry.ChunkFlickTarget(50, 60, 50, 1, forward: true), precision: 3);
+        Assert.Equal(0, InfiniteScheduleGeometry.ChunkFlickTarget(50, 40, 50, 1, forward: false), precision: 3);
     }
 
     [Fact]

@@ -106,6 +106,8 @@ public partial class LargeOne : ContentPage
 
     private void OnDay(object? sender, EventArgs e) => Schedule.ViewMode = 1;
 
+    private void OnTwoDay(object? sender, EventArgs e) => Schedule.ViewMode = 2;
+
     private void OnThreeDay(object? sender, EventArgs e) => Schedule.ViewMode = 3;
 
     private void OnWeek(object? sender, EventArgs e) => Schedule.ViewMode = 7;

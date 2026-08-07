@@ -70,6 +70,19 @@ public static class InfiniteScheduleGeometry
         return t * t * (3.0 - (2.0 * t));
     }
 
+    /// <summary>
+    /// <see cref="CellEmphasis(double)"/> for a window <paramref name="span"/> days wide (two-day mode
+    /// selects two cells at once): every day inside the window scores 1, and the fade runs over the one
+    /// day either side of it. Identical to the single-day curve when <paramref name="span"/> is 1.
+    /// </summary>
+    /// <param name="distance">Signed distance from the window's first day, in days.</param>
+    /// <param name="span">Days the window covers.</param>
+    public static double CellEmphasis(double distance, int span)
+    {
+        double inner = Math.Max(1, span) - 1;
+        return CellEmphasis(distance < 0 ? distance : Math.Max(0, distance - inner));
+    }
+
     /// <summary>Number of day columns needed to fill <paramref name="bodyWidth"/>, plus one for the partial edge.</summary>
     /// <param name="bodyWidth">Width available for day columns (viewport minus the time rail).</param>
     /// <param name="dayWidth">Width of one day column in logical pixels.</param>

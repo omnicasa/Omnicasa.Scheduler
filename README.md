@@ -176,9 +176,10 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 | `ItemsSource` | `null` | `IEnumerable` of `IScheduleItem`. Call `RefreshItems()` after mutating an item's time in place. |
 | `AnchorDay` | today | The day at horizontal offset 0; scrolling is measured relative to it. |
 | `MinDay` / `MaxDay` | `null` | Optional bounds; `null` = unbounded (truly infinite) in that direction. |
-| `ViewMode` | `1` | Day columns visible at once (1–7); sets the day-column width. |
+| `ViewMode` | `1` | Day columns visible at once (1–7); sets the day-column width. `2` is [two-day mode](#two-day-mode) — the one-day view widened to a pair, stepping a day at a time. |
 | `ShowAllDay` | `true` | All-day / multi-day bars in a panel above the grid; off hides those items entirely. |
-| `SingleDayHeader` | `true` | **One-day mode only.** Puts the date above the hour rail and gives the rest of the band to the day's all-day bars — or, when it has none, to a summary line ("3 appointments" / "Nothing planned"). Off restores the centered day-column header. |
+| `SingleDayHeader` | `true` | **One- and two-day mode.** In one-day mode, puts the date above the hour rail and gives the rest of the band to the day's all-day bars — or, when it has none, to a summary line ("3 appointments" / "Nothing planned"). In two-day mode under the week strip, it puts the month above the rail and leaves the columns bare. Off restores the centered day-column header. |
+| `OneDayHeaderMode` | `Band` | **One- and two-day mode.** `Band` is the header alone; `WeekStrip` adds a week of days above it, marking the day (or the pair) on screen. Tapping a day glides to it. Height comes from `Theme.WeekStripHeight`. |
 | `DaySummaryFormatter` | `null` | `Func<ScheduleDaySummary, string>` building that summary line (localize it here); `null` uses the built-in English text. |
 | `HourHeight` | `60` | Pixels per hour; clamped `[24, 300]`, **two-finger pinch to zoom**. |
 | `StartLockHour` / `EndLockHour` | `0` / `24` | **Working-time lock.** Set e.g. `8` / `18` and the viewport cannot scroll outside 08:00–18:00 — the full 24 hours are still drawn, just unreachable. Drag/resize and tap-to-create clamp to the same window. Ignored when `EndLockHour <= StartLockHour`. |
@@ -187,7 +188,7 @@ It mirrors much of the `ScheduleView` API (same member names) so callers can lar
 | `TypingItem` | `null` | Draft block — drag to move, corners to resize; pops in on appear. |
 | `HoldingSchedule` | `null` | "Held" block — drag to reposition; shows a leash back to its origin; reports `HoldingDropped`. |
 | `TopContentInset` / `BottomContentInset` | `0` | Blank space above midnight / below 24:00 inside the body. |
-| `PagingEnabled` | `true` | Horizontal gestures: a slow drag snaps to the nearest **day**; a flick pages exactly **one screenful** (`ViewMode` days) carousel-style. |
+| `PagingEnabled` | `true` | Horizontal gestures: a slow drag snaps to the nearest **day**; a flick pages exactly **one screenful** (`ViewMode` days) carousel-style — except in two-day mode, which flicks a single day. |
 | `FlingGain` / `FlingDecelerationTime` / `MaxFlingSpeed` | `1.0` / `0.5` / `12000` | Momentum tuning for the free (vertical) fling. `FlingGain` of `1.0` hands the finger's measured speed to the content unchanged; `FlingDecelerationTime` of `0.5` s is the `UIScrollView` deceleration curve. In paging mode there is no free momentum — `FlingGain` only feeds the page spring's launch velocity, so use `SettleTime` to make paging faster. |
 | `SettleTime` | `0.07` | Time constant (s) of the spring that settles the day axis: the page transition after a flick, the snap-back after a drag, the alignment after a tap. A transition takes roughly 6× this — drop to ~`0.04` for a snappy pager, raise for a lazier one. Clamped `[0.02, 1.0]`. |
 | `CurrentDay` | today | **Two-way**: the leftmost visible day. Updates as you scroll/page; setting it scrolls there. |
@@ -220,6 +221,33 @@ the bars still route through `DrawAllDayBar`). Paint only the page's own span, `
 `ContentArea.Right`, or you'll wipe out the page sliding in behind it. The context carries the laid-out
 rects plus a `ScheduleDaySummary` with the raw counts, if you'd rather compose the text than take
 `SummaryText`.
+
+#### Two-day mode
+
+`ViewMode = 2` is the one-day view widened to a pair: it keeps the one-day header treatments
+(`OneDayHeaderMode`, `SingleDayHeader`) and, unlike every wider mode, moves **one day per flick** — the
+window slides `12 → 23 → 34`, so each swipe keeps the day you were just looking at:
+
+```
+┌──────────────────────────────────────────┐
+│  M   T   W   T   F   S   S               │  ← solid circle on the leading day,
+│  2  ((3) 4)  5   6   7   8               │    lighter capsule across the pair
+├──────────┬─────────────────┬─────────────┤
+│   AUG    │  [ Holiday ...................│  ← all-day bars, spanning their own columns
+├──────────┼─────────────────┼─────────────┤
+│   09     │                 │             │
+```
+
+Under the week strip the header names the window once, above the hour rail (the strip already spells
+out both days), and the columns carry only their all-day bars and person initials — override
+`InfiniteScheduleRenderer.DrawHeaderRailDate` to restyle that cell, or `DrawHeader` for the whole band.
+In `Band` mode the two columns keep their own dates, exactly as the wider modes draw them.
+
+The strip marks the pair in two layers: the solid circle stays on the **leading day** exactly as it does
+in one-day mode (`Emphasis`), and a **lighter capsule** washes the window under it (`RangeEmphasis` —
+the same curve held flat across the pair). Each cell's slice of the wash reaches toward whichever
+neighbour is lit too, its end radius closing to 0 as it goes, so the run grows into one capsule rather
+than snapping into it: every shape on the strip is a continuous function of the scroll offset.
 
 _Not yet wired: `HeaderMode` `Linked`/`None`._
 

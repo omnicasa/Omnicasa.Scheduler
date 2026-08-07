@@ -161,6 +161,77 @@ public readonly struct InfiniteSingleDayHeaderContext
 
     /// <summary>Summary line to draw when there are no all-day bars (from the view's formatter).</summary>
     public string SummaryText { get; init; }
+
+    /// <summary>
+    /// True when the weekday strip sits above this band. The strip already names the day, so the
+    /// default date cell shows the month instead of repeating the weekday and number.
+    /// </summary>
+    public bool WeekStripAbove { get; init; }
+}
+
+/// <summary>One cell of the weekday strip. Carried by <see cref="InfiniteWeekStripContext"/>.</summary>
+public readonly struct InfiniteWeekStripCell
+{
+    /// <summary>The calendar day this cell stands for.</summary>
+    public DateTime Day { get; init; }
+
+    /// <summary>True when <see cref="Day"/> is today.</summary>
+    public bool IsToday { get; init; }
+
+    /// <summary>False when the day is outside <c>MinDay</c>/<c>MaxDay</c> — drawn dimmed, and not tappable.</summary>
+    public bool IsEnabled { get; init; }
+
+    /// <summary>
+    /// How selected this day is: 1 when it fills the viewport, 0 when a whole day away or further,
+    /// smoothstepped in between. Drives the marker's opacity and the number's size, so mid-swipe the
+    /// circle fades out of the day being left and grows into the one arriving — the cell itself never
+    /// moves.
+    /// </summary>
+    public float Emphasis { get; init; }
+
+    /// <summary>The cell's full rectangle: a fixed seventh of the strip.</summary>
+    public SKRect Rect { get; init; }
+
+    /// <summary>The selection circle for this cell, at full size; scale/fade it by <see cref="Emphasis"/>.</summary>
+    public SKRect MarkerRect { get; init; }
+
+    /// <summary>Localized shortest weekday name, e.g. "M" / "Mo".</summary>
+    public string Initial { get; init; }
+
+    /// <summary>The day-of-month number.</summary>
+    public string Number { get; init; }
+}
+
+/// <summary>
+/// Everything a renderer needs to paint the weekday strip shown above the one-day header when
+/// <c>OneDayHeaderMode</c> is <c>WeekStrip</c>. Carried by
+/// <see cref="InfiniteScheduleRenderer.DrawWeekStrip"/>; the canvas is already clipped to
+/// <c>[0,0] .. [Width, Height]</c>.
+///
+/// <para><see cref="Cells"/> is one whole week, laid out across the strip and fixed in place — nothing
+/// here slides. The animation lives entirely in <see cref="InfiniteWeekStripCell.Emphasis"/>: on a
+/// swipe the marker fades and shrinks out of the day being left and grows into the day arriving, both
+/// in their own cells. The week only changes when the swipe lands on a day belonging to another one.</para>
+/// </summary>
+public readonly struct InfiniteWeekStripContext
+{
+    /// <summary>Active theme (colors + font sizes).</summary>
+    public ScheduleViewTheme Theme { get; init; }
+
+    /// <summary>Full logical width of the strip (a week's worth of cells spans exactly this).</summary>
+    public float Width { get; init; }
+
+    /// <summary>Height of the strip.</summary>
+    public float Height { get; init; }
+
+    /// <summary>The week's seven cells, left to right.</summary>
+    public IReadOnlyList<InfiniteWeekStripCell> Cells { get; init; }
+
+    /// <summary>Marker fill, blended between <c>Theme.Today</c> and <c>Theme.Accent</c> across the swipe.</summary>
+    public SKColor MarkerColor { get; init; }
+
+    /// <summary>Color of a day number sitting on the marker (theme override, else auto-contrast).</summary>
+    public SKColor SelectedForeground { get; init; }
 }
 
 /// <summary>
@@ -171,6 +242,9 @@ public readonly struct InfiniteSingleDayHeaderContext
 /// </summary>
 public class InfiniteScheduleRenderer
 {
+    /// <summary>How much bigger a week-strip day number grows at the middle of the strip.</summary>
+    private const float WeekStripFocusGain = 0.45f;
+
     private static readonly SKTypeface BoldTypeface = SKTypeface.FromFamilyName(null, SKFontStyle.Bold) ?? SKTypeface.Default;
 
     private static readonly SKTypeface RegularTypeface = SKTypeface.Default;
@@ -340,6 +414,65 @@ public class InfiniteScheduleRenderer
     }
 
     /// <summary>
+    /// Draws the week strip above the one-day header (<c>OneDayHeaderMode == WeekStrip</c>). Default:
+    /// weekday initials over day numbers, today tinted with <c>Theme.Today</c>, and a filled circle on
+    /// the current day. Nothing moves sideways — each cell keeps its place, and
+    /// <see cref="InfiniteWeekStripCell.Emphasis"/> fades its circle in and grows its number, so a
+    /// swipe hands the marker from one day to the next where they stand.
+    /// </summary>
+    /// <param name="canvas">Target GPU canvas (drawing in logical units).</param>
+    /// <param name="ctx">Strip geometry and the week's cells with their selection weights.</param>
+    public virtual void DrawWeekStrip(SKCanvas canvas, InfiniteWeekStripContext ctx)
+    {
+        var theme = ctx.Theme;
+
+        using var bg = new SKPaint { Color = ToSk(theme.HeaderBackground ?? theme.Background), Style = SKPaintStyle.Fill };
+        canvas.DrawRect(new SKRect(0, 0, ctx.Width, ctx.Height), bg);
+
+        float initialSize = (float)theme.HeaderPrimaryFontSize;
+        float numberSize = (float)theme.HeaderSecondaryFontSize;
+        using var initialFont = new SKFont(RegularTypeface, initialSize);
+        using var numberFont = new SKFont(BoldTypeface, numberSize);
+        using var paint = new SKPaint { IsAntialias = true };
+        using var marker = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+
+        foreach (var cell in ctx.Cells)
+        {
+            byte dim = cell.IsEnabled ? (byte)255 : (byte)90;
+
+            if (cell.Emphasis > 0.001f)
+            {
+                // Grows and fades in on the day being reached, out of the one being left — in place.
+                float scale = 0.55f + (0.45f * cell.Emphasis);
+                marker.Color = ctx.MarkerColor.WithAlpha((byte)Math.Round(dim * cell.Emphasis));
+                canvas.Save();
+                canvas.Scale(scale, scale, cell.MarkerRect.MidX, cell.MarkerRect.MidY);
+                canvas.DrawRoundRect(
+                    cell.MarkerRect,
+                    cell.MarkerRect.Width / 2f,
+                    cell.MarkerRect.Height / 2f,
+                    marker);
+                canvas.Restore();
+            }
+
+            paint.Color = ToSk(cell.IsToday ? theme.Today : theme.Muted).WithAlpha(dim);
+            canvas.DrawText(cell.Initial, cell.Rect.MidX, initialSize + 6, SKTextAlign.Center, initialFont, paint);
+
+            // The number swells into the marker and its color crosses to the selected one, so the
+            // hand-over reads as a single move even though neither day shifts.
+            var resting = ToSk(cell.IsToday ? theme.Today : theme.Foreground);
+            paint.Color = LerpColor(resting, ctx.SelectedForeground, cell.Emphasis).WithAlpha(dim);
+            numberFont.Size = numberSize * (1f + (WeekStripFocusGain * cell.Emphasis));
+            var metrics = numberFont.Metrics;
+            float baseline = cell.MarkerRect.MidY - ((metrics.Ascent + metrics.Descent) / 2f);
+            canvas.DrawText(cell.Number, cell.Rect.MidX, baseline, SKTextAlign.Center, numberFont, paint);
+        }
+
+        using var sep = new SKPaint { Color = ToSk(theme.GridLine), StrokeWidth = 1, IsAntialias = false };
+        canvas.DrawLine(0, ctx.Height - 0.5f, ctx.Width, ctx.Height - 0.5f, sep);
+    }
+
+    /// <summary>
     /// Draws the one-day header band (<c>ViewMode == 1</c> with <c>SingleDayHeader</c> on). Default:
     /// weekday over day number above the hour rail, and right of it the day's all-day bars — or, when
     /// the day has none, the summary line ("3 appointments" / "Nothing planned"). Override to restyle
@@ -404,6 +537,23 @@ public class InfiniteScheduleRenderer
         var area = ctx.DateArea;
         float weekdaySize = (float)theme.HeaderPrimaryFontSize;
         float numberSize = (float)theme.HeaderSecondaryFontSize;
+
+        // With the strip above, the weekday and number are already up there — show the month, which
+        // the strip can't give (its numbers roll across month ends without saying so).
+        if (ctx.WeekStripAbove)
+        {
+            using var monthPaint = new SKPaint { Color = ToSk(ctx.IsToday ? theme.Today : theme.Muted), IsAntialias = true };
+            using var monthFont = new SKFont(RegularTypeface, weekdaySize);
+            canvas.DrawText(
+                ctx.Day.ToString("MMM", CultureInfo.CurrentCulture).ToUpperInvariant(),
+                area.MidX,
+                area.MidY + (weekdaySize * 0.36f),
+                SKTextAlign.Center,
+                monthFont,
+                monthPaint);
+            return;
+        }
+
         string weekday = ctx.Day.ToString("ddd", CultureInfo.CurrentCulture).ToUpperInvariant();
         string number = ctx.Day.Day.ToString(CultureInfo.CurrentCulture);
 
@@ -523,6 +673,21 @@ public class InfiniteScheduleRenderer
         => (t.Minute == 0
             ? t.ToString("h tt", CultureInfo.CurrentCulture)
             : t.ToString("h:mm tt", CultureInfo.CurrentCulture)).ToLowerInvariant();
+
+    private static SKColor LerpColor(SKColor from, SKColor to, float t)
+    {
+        if (from == to)
+        {
+            return from;
+        }
+
+        float k = Math.Clamp(t, 0f, 1f);
+        return new SKColor(
+            (byte)Math.Round(from.Red + ((to.Red - from.Red) * k)),
+            (byte)Math.Round(from.Green + ((to.Green - from.Green) * k)),
+            (byte)Math.Round(from.Blue + ((to.Blue - from.Blue) * k)),
+            (byte)Math.Round(from.Alpha + ((to.Alpha - from.Alpha) * k)));
+    }
 
     private static SKColor ToSk(Color? color)
     {

@@ -54,6 +54,130 @@ public class InfiniteScheduleGeometryTests
         Assert.Equal(123, InfiniteScheduleGeometry.SnapToDay(123, 0), precision: 3);
     }
 
+    [Theory]
+    [InlineData(0, 0, 0)]   // anchor day is the week's first cell
+    [InlineData(3, 0, 3)]
+    [InlineData(7, 0, 0)]   // wraps into the next week
+    [InlineData(-1, 0, 6)]  // and back into the previous one
+    [InlineData(-7, 0, 0)]
+    [InlineData(0, 5, 5)]   // anchor sitting mid-week shifts every column
+    [InlineData(2, 5, 0)]
+    public void ColumnOfDay_WrapsBothDirections(int dayIndex, int anchorColumn, int expected)
+    {
+        Assert.Equal(expected, InfiniteScheduleGeometry.ColumnOfDay(dayIndex, anchorColumn));
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(6, 0, 0)]
+    [InlineData(7, 0, 1)]
+    [InlineData(-1, 0, -1)]
+    [InlineData(2, 5, 1)]
+    public void WeekOfDay_FloorsIntoWeeks(int dayIndex, int anchorColumn, int expected)
+    {
+        Assert.Equal(expected, InfiniteScheduleGeometry.WeekOfDay(dayIndex, anchorColumn));
+    }
+
+    [Theory]
+    [InlineData(0, 3)]
+    [InlineData(5, 0)]
+    [InlineData(-2, 6)]
+    public void DayOfCell_InvertsWeekAndColumn(int dayIndex, int anchorColumn)
+    {
+        int week = InfiniteScheduleGeometry.WeekOfDay(dayIndex, anchorColumn);
+        int column = InfiniteScheduleGeometry.ColumnOfDay(dayIndex, anchorColumn);
+        Assert.Equal(dayIndex, InfiniteScheduleGeometry.DayOfCell(week, column, anchorColumn));
+    }
+
+    [Fact]
+    public void WeekOfDay_HoldsTheWholeWeekOnOnePage()
+    {
+        // Every day of one week maps to the same page — the strip only swaps when the week does.
+        int week = InfiniteScheduleGeometry.WeekOfDay(0, anchorColumn: 0);
+        for (int dayIndex = 0; dayIndex < 7; dayIndex++)
+        {
+            Assert.Equal(week, InfiniteScheduleGeometry.WeekOfDay(dayIndex, anchorColumn: 0));
+        }
+
+        Assert.NotEqual(week, InfiniteScheduleGeometry.WeekOfDay(7, anchorColumn: 0));
+    }
+
+    [Theory]
+    [InlineData(0, 100, 0)]
+    [InlineData(250, 100, 2.5)]     // mid-swipe between day 2 and day 3
+    [InlineData(700, 100, 7)]
+    [InlineData(-50, 100, -0.5)]    // and the same going back before the anchor
+    public void DayPosition_IsTheFractionalDayIndex(double offset, float dayWidth, double expected)
+    {
+        Assert.Equal(expected, InfiniteScheduleGeometry.DayPosition(offset, dayWidth), precision: 3);
+    }
+
+    [Fact]
+    public void DayPosition_ZeroDayWidth_IsOrigin()
+    {
+        Assert.Equal(0, InfiniteScheduleGeometry.DayPosition(500, 0), precision: 3);
+    }
+
+    [Fact]
+    public void CellEmphasis_PeaksOnTheCurrentDayAndDiesOffADayAway()
+    {
+        Assert.Equal(1.0, InfiniteScheduleGeometry.CellEmphasis(0), precision: 3);
+        Assert.Equal(0.5, InfiniteScheduleGeometry.CellEmphasis(0.5), precision: 3);
+        Assert.Equal(0.0, InfiniteScheduleGeometry.CellEmphasis(1), precision: 3);
+        Assert.Equal(0.0, InfiniteScheduleGeometry.CellEmphasis(3.7), precision: 3);
+    }
+
+    [Fact]
+    public void CellEmphasis_OnlyEverLitsTheTwoDaysAroundTheSwipe()
+    {
+        // Mid-swipe between day 2 and day 3, nothing else in the week may carry any marker.
+        double position = InfiniteScheduleGeometry.DayPosition(250, 100);
+        for (int dayIndex = 0; dayIndex < 7; dayIndex++)
+        {
+            double emphasis = InfiniteScheduleGeometry.CellEmphasis(dayIndex - position);
+            if (dayIndex is 2 or 3)
+            {
+                Assert.True(emphasis > 0);
+            }
+            else
+            {
+                Assert.Equal(0.0, emphasis, precision: 6);
+            }
+        }
+    }
+
+    [Fact]
+    public void CellEmphasis_IsSymmetricAndBounded()
+    {
+        for (int step = -30; step <= 30; step++)
+        {
+            double d = step / 10.0;
+            double emphasis = InfiniteScheduleGeometry.CellEmphasis(d);
+
+            Assert.InRange(emphasis, 0.0, 1.0);
+            Assert.Equal(InfiniteScheduleGeometry.CellEmphasis(-d), emphasis, precision: 6);
+        }
+    }
+
+    [Fact]
+    public void CellEmphasis_HandsFocusOverAcrossASwipe()
+    {
+        // Mid-swipe the two days straddling the middle share the focus evenly — neither jumps ahead.
+        Assert.Equal(
+            InfiniteScheduleGeometry.CellEmphasis(0.5),
+            InfiniteScheduleGeometry.CellEmphasis(-0.5),
+            precision: 6);
+
+        // And the focus only ever grows on the way in.
+        double previous = 0;
+        for (int step = 10; step >= 0; step--)
+        {
+            double emphasis = InfiniteScheduleGeometry.CellEmphasis(step / 10.0);
+            Assert.True(emphasis >= previous);
+            previous = emphasis;
+        }
+    }
+
     [Fact]
     public void ClampOffset_NullBounds_IsUnbounded()
     {

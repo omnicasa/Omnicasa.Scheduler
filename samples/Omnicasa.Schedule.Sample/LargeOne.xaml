@@ -32,6 +32,8 @@
         <Switch x:Name="CustomSwitch" Toggled="OnCustomToggled" />
         <Label Text="Paging" VerticalOptions="Center" />
         <Switch x:Name="PagingSwitch" IsToggled="True" Toggled="OnPagingToggled" />
+        <Label Text="Week strip" VerticalOptions="Center" />
+        <Switch x:Name="WeekStripSwitch" Toggled="OnWeekStripToggled" />
       </HorizontalStackLayout>
     </ScrollView>
 

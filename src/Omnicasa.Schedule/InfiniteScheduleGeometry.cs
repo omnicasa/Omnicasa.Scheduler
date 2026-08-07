@@ -25,6 +25,51 @@ public static class InfiniteScheduleGeometry
     public static int DominantDay(double horizontalOffset, float dayWidth)
         => dayWidth <= 0 ? 0 : (int)Math.Floor((horizontalOffset / dayWidth) + 0.5);
 
+    /// <summary>Column (0..6) a day sits in inside its week.</summary>
+    /// <param name="dayIndex">Day index relative to the anchor day.</param>
+    /// <param name="anchorColumn">Column the anchor day itself occupies (0 = first day of the week).</param>
+    public static int ColumnOfDay(int dayIndex, int anchorColumn)
+    {
+        int g = dayIndex + anchorColumn;
+        return (int)(g - (7 * Math.Floor(g / 7.0)));
+    }
+
+    /// <summary>Index of the week a day belongs to (0 = the anchor day's week).</summary>
+    /// <param name="dayIndex">Day index relative to the anchor day.</param>
+    /// <param name="anchorColumn">Column the anchor day itself occupies (0 = first day of the week).</param>
+    public static int WeekOfDay(int dayIndex, int anchorColumn)
+        => (int)Math.Floor((dayIndex + anchorColumn) / 7.0);
+
+    /// <summary>Day index of one cell of a week — the inverse of the two helpers above.</summary>
+    /// <param name="weekIndex">Week index.</param>
+    /// <param name="column">Column within the week (0..6).</param>
+    /// <param name="anchorColumn">Column the anchor day itself occupies.</param>
+    public static int DayOfCell(int weekIndex, int column, int anchorColumn)
+        => (weekIndex * 7) + column - anchorColumn;
+
+    /// <summary>
+    /// The day axis as a continuous (fractional) day index — whole at rest, mid-way through a swipe.
+    /// The day strip rides this directly, so it needs no animation state of its own: it tracks the
+    /// finger, the fling and the day snap by construction and can never drift off the day below it.
+    /// </summary>
+    /// <param name="horizontalOffset">Pixels scrolled right of the anchor day's left edge.</param>
+    /// <param name="dayWidth">Width of one day column in logical pixels.</param>
+    public static double DayPosition(double horizontalOffset, float dayWidth)
+        => dayWidth <= 0 ? 0 : horizontalOffset / dayWidth;
+
+    /// <summary>
+    /// How strongly a strip cell is selected, given how many days it sits from the live day position:
+    /// 1 for the day filling the viewport, 0 for anything a whole day away or further. Smoothstepped,
+    /// so the marker eases from one day to the next instead of ramping at a constant rate. The strip
+    /// itself never moves — this weight is what hands the marker over.
+    /// </summary>
+    /// <param name="distance">Signed distance from the current day position, in days.</param>
+    public static double CellEmphasis(double distance)
+    {
+        double t = 1.0 - Math.Min(1.0, Math.Abs(distance));
+        return t * t * (3.0 - (2.0 * t));
+    }
+
     /// <summary>Number of day columns needed to fill <paramref name="bodyWidth"/>, plus one for the partial edge.</summary>
     /// <param name="bodyWidth">Width available for day columns (viewport minus the time rail).</param>
     /// <param name="dayWidth">Width of one day column in logical pixels.</param>

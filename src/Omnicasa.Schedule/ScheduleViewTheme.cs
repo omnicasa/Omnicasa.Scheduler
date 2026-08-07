@@ -73,6 +73,14 @@ public class ScheduleViewTheme : BindableObject
     public static readonly BindableProperty HeaderHeightProperty =
         BindableProperty.Create(nameof(HeaderHeight), typeof(double), typeof(ScheduleViewTheme), 48.0);
 
+    /// <summary>Bindable property for <see cref="WeekStripHeight"/>.</summary>
+    public static readonly BindableProperty WeekStripHeightProperty =
+        BindableProperty.Create(nameof(WeekStripHeight), typeof(double), typeof(ScheduleViewTheme), 64.0);
+
+    /// <summary>Bindable property for <see cref="SelectedDayForeground"/>.</summary>
+    public static readonly BindableProperty SelectedDayForegroundProperty =
+        BindableProperty.Create(nameof(SelectedDayForeground), typeof(Color), typeof(ScheduleViewTheme), null);
+
     /// <summary>Background color of the canvas.</summary>
     public Color Background
     {
@@ -186,5 +194,26 @@ public class ScheduleViewTheme : BindableObject
     {
         get => (double)GetValue(HeaderHeightProperty);
         set => SetValue(HeaderHeightProperty, value);
+    }
+
+    /// <summary>
+    /// Height of the week strip above the one-day header, in logical pixels. Only used when
+    /// <c>InfiniteScheduleView.OneDayHeaderMode</c> is <c>WeekStrip</c>. The centre day's bubble is
+    /// sized from what's left below the weekday initials, so shrinking this shrinks the focus.
+    /// </summary>
+    public double WeekStripHeight
+    {
+        get => (double)GetValue(WeekStripHeightProperty);
+        set => SetValue(WeekStripHeightProperty, value);
+    }
+
+    /// <summary>
+    /// Text color of the day number inside the week strip's selection bubble; null picks white or
+    /// near-black automatically, whichever reads against the bubble fill.
+    /// </summary>
+    public Color? SelectedDayForeground
+    {
+        get => (Color?)GetValue(SelectedDayForegroundProperty);
+        set => SetValue(SelectedDayForegroundProperty, value);
     }
 }

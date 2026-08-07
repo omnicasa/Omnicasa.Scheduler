@@ -183,6 +183,16 @@ public partial class LargeOne : ContentPage
         Show(e.Value ? "Paging on — swipe snaps one page." : "Paging off — free momentum scroll.");
     }
 
+    private void OnWeekStripToggled(object? sender, ToggledEventArgs e)
+    {
+        Schedule.OneDayHeaderMode = e.Value
+            ? ScheduleOneDayHeaderMode.WeekStrip
+            : ScheduleOneDayHeaderMode.Band;
+        Show(e.Value
+            ? "Week strip on (Day mode) — fixed week, marker grows onto the current day; tap to jump."
+            : "Week strip off — plain one-day band.");
+    }
+
     // Demo custom look: soft-tinted block with a colored left accent bar and colored title.
     private sealed class StripeRenderer : InfiniteScheduleRenderer
     {

@@ -42,8 +42,9 @@ public sealed class ScheduleVisibleRangeChangedEventArgs : EventArgs
 ///
 /// <para>Wired: body grid, day/person header, hour rail, event blocks, tap/long-press, momentum
 /// scroll with day snap, typing &amp; holding drags, per-person sub-columns, custom
-/// <see cref="SkiaRenderer"/>, two-finger pinch-to-zoom (HourHeight), and the all-day panel
-/// (<see cref="ShowAllDay"/>). Not yet: the quick-action menu and Linked/None header modes.</para>
+/// <see cref="SkiaRenderer"/>, two-finger pinch-to-zoom (HourHeight), the all-day panel
+/// (<see cref="ShowAllDay"/>), and the one-day week strip with its centred day focus
+/// (<see cref="OneDayHeaderMode"/>). Not yet: the quick-action menu and Linked/None header modes.</para>
 /// </summary>
 public sealed class InfiniteScheduleView : ContentView
 {
@@ -116,6 +117,9 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Day pages the one-day header keeps laid out: the current one and the one swiping in.</summary>
     private const int SingleDayPageCount = 2;
 
+    /// <summary>Day cells across the week strip; odd, so one of them is the middle.</summary>
+    private const int WeekStripCells = 7;
+
     /// <summary>Bindable property for <see cref="ItemsSource"/>.</summary>
     public static readonly BindableProperty ItemsSourceProperty =
         BindableProperty.Create(
@@ -152,6 +156,24 @@ public sealed class InfiniteScheduleView : ContentView
             typeof(InfiniteScheduleView),
             true,
             propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLayoutChanged());
+
+    /// <summary>Bindable property for <see cref="OneDayHeaderMode"/>.</summary>
+    public static readonly BindableProperty OneDayHeaderModeProperty =
+        BindableProperty.Create(
+            nameof(OneDayHeaderMode),
+            typeof(ScheduleOneDayHeaderMode),
+            typeof(InfiniteScheduleView),
+            ScheduleOneDayHeaderMode.Band,
+            propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).OnLayoutChanged());
+
+    /// <summary>Bindable property for <see cref="FirstDayOfWeek"/>.</summary>
+    public static readonly BindableProperty FirstDayOfWeekProperty =
+        BindableProperty.Create(
+            nameof(FirstDayOfWeek),
+            typeof(DayOfWeek),
+            typeof(InfiniteScheduleView),
+            CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek,
+            propertyChanged: (b, _, _) => ((InfiniteScheduleView)b).Invalidate());
 
     /// <summary>Bindable property for <see cref="HourHeight"/>.</summary>
     public static readonly BindableProperty HourHeightProperty =
@@ -370,6 +392,9 @@ public sealed class InfiniteScheduleView : ContentView
     // All-day bar hit rectangles in view coordinates; the panel is painted live, not into the strip.
     private readonly List<(IScheduleItem Item, SKRect Rect)> allDayHitMap = new List<(IScheduleItem, SKRect)>();
 
+    // Week strip cells in view coordinates, rebuilt each paint, so a tap can jump to the day.
+    private readonly List<(int DayIndex, SKRect Rect)> weekStripHitMap = new List<(int, SKRect)>();
+
     // Active touch points by id, so two-finger pinch-to-zoom can be tracked.
     private readonly Dictionary<long, Point> touches = new Dictionary<long, Point>();
 
@@ -474,6 +499,9 @@ public sealed class InfiniteScheduleView : ContentView
 
     // True while a press has "caught" a running fling — suppresses the tap action on release.
     private bool caughtMotion;
+
+    // Day index a press landed on in the week strip, jumped to on release when no drag committed.
+    private int? stripPressDay;
 
     // Two-finger pinch-to-zoom state (zooms HourHeight around the pinch center).
     private bool inPinch;
@@ -672,6 +700,26 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(SingleDayHeaderProperty, value);
     }
 
+    /// <summary>
+    /// How the header looks in one-day mode (<see cref="ViewMode"/> == 1).
+    /// <see cref="ScheduleOneDayHeaderMode.WeekStrip"/> puts a week's worth of days above the day band,
+    /// centred on the current one: the days ride the swipe, swelling into a bubble as they pass through
+    /// the middle, and tapping one glides to it. Restyle it by overriding
+    /// <c>InfiniteScheduleRenderer.DrawWeekStrip</c>; size it with <c>Theme.WeekStripHeight</c>.
+    /// </summary>
+    public ScheduleOneDayHeaderMode OneDayHeaderMode
+    {
+        get => (ScheduleOneDayHeaderMode)GetValue(OneDayHeaderModeProperty);
+        set => SetValue(OneDayHeaderModeProperty, value);
+    }
+
+    /// <summary>Day the week strip starts on; defaults to the current culture's first day of week.</summary>
+    public DayOfWeek FirstDayOfWeek
+    {
+        get => (DayOfWeek)GetValue(FirstDayOfWeekProperty);
+        set => SetValue(FirstDayOfWeekProperty, value);
+    }
+
     /// <summary>Vertical size of one hour, in logical pixels.</summary>
     public double HourHeight
     {
@@ -868,8 +916,16 @@ public sealed class InfiniteScheduleView : ContentView
 
     private float HeaderHeight => (float)ActiveTheme.HeaderHeight;
 
-    // Top of the time grid: below the header, and below the all-day panel when it has lanes.
-    private float BodyTop => HeaderHeight + allDayHeight;
+    // The weekday strip, when shown, sits above everything else and pushes the header band down.
+    private bool WeekStripActive => ViewMode == 1 && OneDayHeaderMode == ScheduleOneDayHeaderMode.WeekStrip;
+
+    private float WeekStripHeight => WeekStripActive ? Math.Max(0f, (float)ActiveTheme.WeekStripHeight) : 0f;
+
+    // Top of the time grid: below the strip and the header, and below the all-day panel when it has lanes.
+    private float BodyTop => WeekStripHeight + HeaderHeight + allDayHeight;
+
+    // Column the anchor day occupies in its week, so the strip's day math needs no calendar lookups.
+    private int AnchorWeekColumn => (((int)AnchorDay.Date.DayOfWeek - (int)FirstDayOfWeek) + 7) % 7;
 
     private int PersonCount => Persons is { Count: > 0 } p ? p.Count : 1;
 
@@ -938,6 +994,21 @@ public sealed class InfiniteScheduleView : ContentView
 
     private static double ClampVertical(double offset, float bodyHeight, TimeScale timeScale)
         => timeScale.ClampOffset(offset, bodyHeight);
+
+    private static SKColor LerpColor(SKColor from, SKColor to, float t)
+    {
+        if (from == to)
+        {
+            return from;
+        }
+
+        float k = Math.Clamp(t, 0f, 1f);
+        return new SKColor(
+            (byte)Math.Round(from.Red + ((to.Red - from.Red) * k)),
+            (byte)Math.Round(from.Green + ((to.Green - from.Green) * k)),
+            (byte)Math.Round(from.Blue + ((to.Blue - from.Blue) * k)),
+            (byte)Math.Round(from.Alpha + ((to.Alpha - from.Alpha) * k)));
+    }
 
     private static SKColor ToSk(Color? color)
     {
@@ -1020,6 +1091,7 @@ public sealed class InfiniteScheduleView : ContentView
         panning = false;
         lockAxis = 0;
         pressValid = false;
+        stripPressDay = null;
         StopMotion();
     }
 
@@ -1230,6 +1302,13 @@ public sealed class InfiniteScheduleView : ContentView
         DrawNowMarker(skCanvas, timeScale, railWidth, bodyTop, logicalW, logicalH, bodyWidth);
         DrawScrollIndicator(skCanvas, timeScale, bodyTop, logicalW, bodyHeight);
 
+        // The week strip owns the top of the view, so every header band draws one strip-height lower.
+        // Translating keeps the bands' own geometry (and the renderer contexts they hand out)
+        // band-local, exactly as documented — only their hit rects need lifting back into view space.
+        float headerTop = WeekStripHeight;
+        skCanvas.Save();
+        skCanvas.Translate(0, headerTop);
+
         if (SingleDayHeaderActive)
         {
             // One band: the date over the rail, the day's all-day bars (or its summary) beside it.
@@ -1241,6 +1320,18 @@ public sealed class InfiniteScheduleView : ContentView
             float allDayTx = railWidth - (float)horizontalOffset + (allDayFirstDay * dayWidth);
             DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, allDayTx);
             DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
+        }
+
+        skCanvas.Restore();
+        ShiftAllDayHitMap(headerTop);
+
+        if (WeekStripActive)
+        {
+            DrawWeekStripBand(skCanvas, logicalW);
+        }
+        else
+        {
+            weekStripHitMap.Clear();
         }
 
         // The pop-in and the indicator fade run on the render loop; drop back to on-demand painting
@@ -1594,6 +1685,142 @@ public sealed class InfiniteScheduleView : ContentView
         skCanvas.DrawText("all-day", railWidth - 6, top + AllDayLaneHeight - 5f, SKTextAlign.Right, font, text);
     }
 
+    // The header bands paint in their own band-local space, so their hit rects come back measured from
+    // the top of the band, not the view. Lift them under the strip once the band is drawn.
+    private void ShiftAllDayHitMap(float dy)
+    {
+        if (dy <= 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < allDayHitMap.Count; i++)
+        {
+            var (item, rect) = allDayHitMap[i];
+            allDayHitMap[i] = (item, new SKRect(rect.Left, rect.Top + dy, rect.Right, rect.Bottom + dy));
+        }
+    }
+
+    // The week strip above the one-day header: one fixed week, seven cells, none of which ever move.
+    // The only thing that animates is the marker — each cell's Emphasis is how close the live day
+    // position is to that day, so on a swipe the circle fades and shrinks out of the day you're
+    // leaving while it grows in on the one you're reaching. Emphasis comes straight out of
+    // horizontalOffset, so it tracks the finger, the fling and the day snap with no state of its own.
+    // The week itself only changes when the day you land on belongs to another one.
+    private void DrawWeekStripBand(SKCanvas skCanvas, float logicalW)
+    {
+        weekStripHitMap.Clear();
+
+        float height = WeekStripHeight;
+        if (height <= 0 || logicalW <= 0 || dayWidth <= 0)
+        {
+            return;
+        }
+
+        var theme = ActiveTheme;
+        double position = InfiniteScheduleGeometry.DayPosition(horizontalOffset, dayWidth);
+        int anchorColumn = AnchorWeekColumn;
+
+        // The week of the day that owns the viewport, so the strip swaps weeks at the swipe's midpoint
+        // — the same day the header band names.
+        int week = InfiniteScheduleGeometry.WeekOfDay(
+            InfiniteScheduleGeometry.DominantDay(horizontalOffset, dayWidth),
+            anchorColumn);
+
+        float cellWidth = logicalW / WeekStripCells;
+        float initialSize = (float)theme.HeaderPrimaryFontSize;
+        float markerTop = initialSize + 8f;
+        float markerBottom = height - 4f;
+        float diameter = Math.Max(16f, Math.Min(markerBottom - markerTop, cellWidth - 6f));
+        float markerCy = (markerTop + markerBottom) / 2f;
+
+        var today = DateTime.Today;
+        var culture = CultureInfo.CurrentCulture;
+        var minDay = MinDay?.Date;
+        var maxDay = MaxDay?.Date;
+
+        var cells = new List<InfiniteWeekStripCell>(WeekStripCells);
+        for (int column = 0; column < WeekStripCells; column++)
+        {
+            int dayIndex = InfiniteScheduleGeometry.DayOfCell(week, column, anchorColumn);
+            var day = AnchorDay.Date.AddDays(dayIndex);
+            bool enabled = (minDay is null || day >= minDay) && (maxDay is null || day <= maxDay);
+            float cellCx = (column + 0.5f) * cellWidth;
+            var rect = new SKRect(column * cellWidth, 0, (column + 1) * cellWidth, height);
+
+            cells.Add(new InfiniteWeekStripCell
+            {
+                Day = day,
+                IsToday = day == today,
+                IsEnabled = enabled,
+                Emphasis = (float)InfiniteScheduleGeometry.CellEmphasis(dayIndex - position),
+                Rect = rect,
+                MarkerRect = new SKRect(
+                    cellCx - (diameter / 2f),
+                    markerCy - (diameter / 2f),
+                    cellCx + (diameter / 2f),
+                    markerCy + (diameter / 2f)),
+                Initial = culture.DateTimeFormat.GetShortestDayName(day.DayOfWeek).ToUpper(culture),
+                Number = day.Day.ToString(culture),
+            });
+
+            if (enabled)
+            {
+                weekStripHitMap.Add((dayIndex, rect));
+            }
+        }
+
+        var markerColor = WeekStripBubbleColor();
+        var ctx = new InfiniteWeekStripContext
+        {
+            Theme = theme,
+            Width = logicalW,
+            Height = height,
+            Cells = cells,
+            MarkerColor = markerColor,
+            SelectedForeground = SelectedDayForeground(markerColor),
+        };
+
+        skCanvas.Save();
+        skCanvas.ClipRect(new SKRect(0, 0, logicalW, height));
+        ActiveRenderer.DrawWeekStrip(skCanvas, ctx);
+        skCanvas.Restore();
+    }
+
+    // Blends today's tint into the accent across the swipe, so leaving (or reaching) today changes the
+    // marker with the gesture instead of popping at the midpoint.
+    private SKColor WeekStripBubbleColor()
+    {
+        var theme = ActiveTheme;
+        var accent = ToSk(theme.Accent);
+        if (dayWidth <= 0)
+        {
+            return accent;
+        }
+
+        var todayColor = ToSk(theme.Today);
+        int todayIndex = (DateTime.Today - AnchorDay.Date).Days;
+        double position = horizontalOffset / dayWidth;
+        int day = (int)Math.Floor(position);
+
+        return LerpColor(
+            day == todayIndex ? todayColor : accent,
+            day + 1 == todayIndex ? todayColor : accent,
+            (float)(position - day));
+    }
+
+    // Readable text on the marker: the theme's override, else white or near-black by the fill's luminance.
+    private SKColor SelectedDayForeground(SKColor marker)
+    {
+        if (ActiveTheme.SelectedDayForeground is { } configured)
+        {
+            return ToSk(configured);
+        }
+
+        double luminance = ((0.299 * marker.Red) + (0.587 * marker.Green) + (0.114 * marker.Blue)) / 255.0;
+        return luminance > 0.6 ? new SKColor(0x1C, 0x1C, 0x1E) : SKColors.White;
+    }
+
     // One-day mode: the header and the all-day panel are one band, drawn as a carousel of day pages —
     // date above the hour rail, its all-day bars (or summary line) right of it. A page is as wide as
     // the viewport, so at rest exactly one fills the band and its neighbours sit off-screen; during a
@@ -1693,6 +1920,7 @@ public sealed class InfiniteScheduleView : ContentView
             AllDayBars = bars,
             Summary = summary,
             SummaryText = (DaySummaryFormatter ?? ScheduleDaySummary.DefaultText)(summary),
+            WeekStripAbove = WeekStripActive,
         };
 
         ActiveRenderer.DrawSingleDayHeader(skCanvas, ctx);
@@ -2073,6 +2301,7 @@ public sealed class InfiniteScheduleView : ContentView
         longPressTimer?.Stop();
         interaction = InteractionKind.None;
         pressValid = false;
+        stripPressDay = null;
         lockAxis = 0;
         inPinch = true;
 
@@ -2175,8 +2404,13 @@ public sealed class InfiniteScheduleView : ContentView
         StopMotion();
         pressPoint = p;
 
+        // A press in the week strip picks a day instead of the grid — remembered rather than acted on,
+        // so the finger can still drag the day axis (or catch a fling) without jumping anywhere.
+        float headerTop = WeekStripHeight;
+        stripPressDay = headerTop > 0 && p.Y < headerTop ? HitTestWeekStrip(p) : null;
+
         // All-day bars sit inside the header band in one-day mode, so a press on one still counts.
-        pressValid = p.X >= RailWidth && (p.Y >= HeaderHeight || HitsAllDayBar(p));
+        pressValid = p.X >= RailWidth && (p.Y >= headerTop + HeaderHeight || HitsAllDayBar(p));
         longFired = false;
         lockAxis = 0;
         velocityX = 0;
@@ -2325,6 +2559,11 @@ public sealed class InfiniteScheduleView : ContentView
             // Vertical (or paging off) → free momentum, settles on a day.
             StartFling();
         }
+        else if (stripPressDay is int stripDay)
+        {
+            // Tapped a day in the week strip: glide the day axis onto it (the bubble rides along).
+            JumpToDay(stripDay);
+        }
         else
         {
             // A plain tap fires an action, then the day axis settles to the nearest column so it
@@ -2338,6 +2577,7 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         caughtMotion = false;
+        stripPressDay = null;
         interaction = InteractionKind.None;
     }
 
@@ -2447,6 +2687,35 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         BeginSettle(target);
+    }
+
+    // Eases the day axis onto a whole day — the same spring a flick lands with, so a tapped day
+    // arrives like a swipe rather than teleporting.
+    private void JumpToDay(int dayIndex)
+    {
+        double target = ClampHorizontal(dayIndex * (double)dayWidth);
+        if (Math.Abs(target - horizontalOffset) < 0.5)
+        {
+            SettleToDay();
+            return;
+        }
+
+        // A tap carries no useful momentum; let the spring start from rest.
+        velocityX = 0;
+        BeginSettle(target);
+    }
+
+    private int? HitTestWeekStrip(Point p)
+    {
+        foreach (var (dayIndex, rect) in weekStripHitMap)
+        {
+            if (rect.Contains((float)p.X, (float)p.Y))
+            {
+                return dayIndex;
+            }
+        }
+
+        return null;
     }
 
     private void BeginBlockDrag(InteractionKind kind, Point p, SKRect rect)

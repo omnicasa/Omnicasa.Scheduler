@@ -16,6 +16,7 @@
     <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never">
       <HorizontalStackLayout Spacing="6">
         <Button Text="Day" Clicked="OnDay" />
+        <Button Text="2-Day" Clicked="OnTwoDay" />
         <Button Text="3-Day" Clicked="OnThreeDay" />
         <Button Text="Week" Clicked="OnWeek" />
         <Button Text="→ 8:00" Clicked="OnScroll8" />

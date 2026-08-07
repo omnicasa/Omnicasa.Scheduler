@@ -671,7 +671,12 @@ public sealed class InfiniteScheduleView : ContentView
         set => SetValue(ItemsSourceProperty, value);
     }
 
-    /// <summary>Number of day columns visible at once (1..7); sets the day-column width.</summary>
+    /// <summary>
+    /// Number of day columns visible at once (1..7); sets the day-column width. Two-day mode (2) is the
+    /// one-day view widened to a pair: it keeps the one-day header treatments
+    /// (<see cref="OneDayHeaderMode"/>, <see cref="SingleDayHeader"/>) and pages a single day per flick,
+    /// so the window slides 12 → 23 → 34 rather than jumping a screenful at a time.
+    /// </summary>
     public int ViewMode
     {
         get => (int)GetValue(ViewModeProperty);
@@ -693,6 +698,8 @@ public sealed class InfiniteScheduleView : ContentView
     /// rest of the band to the day's all-day bars — or, when the day has none, to the summary line from
     /// <see cref="DaySummaryFormatter"/>. Off falls back to the day-column header used by the multi-day
     /// modes. Restyle it by overriding <c>InfiniteScheduleRenderer.DrawSingleDayHeader</c>.
+    /// <para>In two-day mode under the week strip, it moves the month above the rail and leaves the two
+    /// day columns to their all-day bars and persons, since the strip already names both days.</para>
     /// </summary>
     public bool SingleDayHeader
     {
@@ -701,10 +708,10 @@ public sealed class InfiniteScheduleView : ContentView
     }
 
     /// <summary>
-    /// How the header looks in one-day mode (<see cref="ViewMode"/> == 1).
+    /// How the header looks in one- and two-day mode (<see cref="ViewMode"/> 1 or 2).
     /// <see cref="ScheduleOneDayHeaderMode.WeekStrip"/> puts a week's worth of days above the day band,
-    /// centred on the current one: the days ride the swipe, swelling into a bubble as they pass through
-    /// the middle, and tapping one glides to it. Restyle it by overriding
+    /// centred on the current one: the cells hold their places while the bubble hands over from the day
+    /// being left to the one arriving, and tapping one glides to it. Restyle it by overriding
     /// <c>InfiniteScheduleRenderer.DrawWeekStrip</c>; size it with <c>Theme.WeekStripHeight</c>.
     /// </summary>
     public ScheduleOneDayHeaderMode OneDayHeaderMode
@@ -916,8 +923,15 @@ public sealed class InfiniteScheduleView : ContentView
 
     private float HeaderHeight => (float)ActiveTheme.HeaderHeight;
 
+    // Two-day mode: a one-day view that shows two columns. It keeps the one-day header treatments and
+    // still moves a single day per swipe (12 → 23), so the pair always overlaps the one before it.
+    private bool TwoDayMode => ViewMode == 2;
+
+    // Days a flick advances. Every other mode pages a whole screenful; two-day mode steps one day.
+    private int PageStepDays => TwoDayMode ? 1 : Math.Max(1, ViewMode);
+
     // The weekday strip, when shown, sits above everything else and pushes the header band down.
-    private bool WeekStripActive => ViewMode == 1 && OneDayHeaderMode == ScheduleOneDayHeaderMode.WeekStrip;
+    private bool WeekStripActive => ViewMode is 1 or 2 && OneDayHeaderMode == ScheduleOneDayHeaderMode.WeekStrip;
 
     private float WeekStripHeight => WeekStripActive ? Math.Max(0f, (float)ActiveTheme.WeekStripHeight) : 0f;
 
@@ -933,7 +947,11 @@ public sealed class InfiniteScheduleView : ContentView
     // (possibly half-scrolled) leftmost one.
     private bool SingleDayHeaderActive => SingleDayHeader && ViewMode == 1;
 
-    private int HeaderDayIndex => SingleDayHeaderActive
+    // Two-day mode names its window above the rail instead of labelling each column, but only under the
+    // strip — in Band mode the columns carry their own dates, which is the whole of that mode.
+    private bool RailDateActive => SingleDayHeader && TwoDayMode && WeekStripActive;
+
+    private int HeaderDayIndex => SingleDayHeaderActive || TwoDayMode
         ? InfiniteScheduleGeometry.DominantDay(horizontalOffset, dayWidth)
         : InfiniteScheduleGeometry.FirstVisibleDay(horizontalOffset, dayWidth);
 
@@ -1704,8 +1722,10 @@ public sealed class InfiniteScheduleView : ContentView
     // The week strip above the one-day header: one fixed week, seven cells, none of which ever move.
     // The only thing that animates is the marker — each cell's Emphasis is how close the live day
     // position is to that day, so on a swipe the circle fades and shrinks out of the day you're
-    // leaving while it grows in on the one you're reaching. Emphasis comes straight out of
-    // horizontalOffset, so it tracks the finger, the fling and the day snap with no state of its own.
+    // leaving while it grows in on the one you're reaching. Two-day mode adds a lighter wash under it
+    // spanning the pair. Both weights come straight out of horizontalOffset, so they track the finger,
+    // the fling and the day snap with no state of their own — every shape here is a continuous function
+    // of the offset, which is what keeps the hand-over from stepping.
     // The week itself only changes when the day you land on belongs to another one.
     private void DrawWeekStripBand(SKCanvas skCanvas, float logicalW)
     {
@@ -1731,13 +1751,26 @@ public sealed class InfiniteScheduleView : ContentView
         float initialSize = (float)theme.HeaderPrimaryFontSize;
         float markerTop = initialSize + 8f;
         float markerBottom = height - 4f;
-        float diameter = Math.Max(16f, Math.Min(markerBottom - markerTop, cellWidth - 6f));
+        float diameter = Math.Max(16f, Math.Min(markerBottom - markerTop, cellWidth - 6f) - 2f);
         float markerCy = (markerTop + markerBottom) / 2f;
 
         var today = DateTime.Today;
         var culture = CultureInfo.CurrentCulture;
         var minDay = MinDay?.Date;
         var maxDay = MaxDay?.Date;
+
+        // Two-day mode washes the pair on screen under the marker, so it needs a second weight: the same
+        // curve held flat across the window instead of peaking on the day it starts on. Both passes come
+        // first, because a cell's slice of the wash has to know how lit the cells beside it are.
+        int span = Math.Max(1, Math.Min(ViewMode, WeekStripCells));
+        var emphasis = new float[WeekStripCells];
+        var range = new float[WeekStripCells];
+        for (int column = 0; column < WeekStripCells; column++)
+        {
+            double distance = InfiniteScheduleGeometry.DayOfCell(week, column, anchorColumn) - position;
+            emphasis[column] = (float)InfiniteScheduleGeometry.CellEmphasis(distance);
+            range[column] = span > 1 ? (float)InfiniteScheduleGeometry.CellEmphasis(distance, span) : 0f;
+        }
 
         var cells = new List<InfiniteWeekStripCell>(WeekStripCells);
         for (int column = 0; column < WeekStripCells; column++)
@@ -1747,19 +1780,35 @@ public sealed class InfiniteScheduleView : ContentView
             bool enabled = (minDay is null || day >= minDay) && (maxDay is null || day <= maxDay);
             float cellCx = (column + 0.5f) * cellWidth;
             var rect = new SKRect(column * cellWidth, 0, (column + 1) * cellWidth, height);
+            var markerRect = new SKRect(
+                cellCx - (diameter / 2f),
+                markerCy - (diameter / 2f),
+                cellCx + (diameter / 2f),
+                markerCy + (diameter / 2f));
+
+            // Each end of the wash reaches toward its neighbour by however lit the pair of them is —
+            // the weaker of the two, so both sides of a shared edge move together. That keeps the run
+            // growing into one capsule instead of snapping into it the instant a neighbour lights up.
+            float joinLeft = column > 0 ? Math.Min(range[column], range[column - 1]) : 0f;
+            float joinRight = column < WeekStripCells - 1 ? Math.Min(range[column], range[column + 1]) : 0f;
+            float radius = diameter / 2f;
 
             cells.Add(new InfiniteWeekStripCell
             {
                 Day = day,
                 IsToday = day == today,
                 IsEnabled = enabled,
-                Emphasis = (float)InfiniteScheduleGeometry.CellEmphasis(dayIndex - position),
+                Emphasis = emphasis[column],
+                RangeEmphasis = range[column],
                 Rect = rect,
-                MarkerRect = new SKRect(
-                    cellCx - (diameter / 2f),
-                    markerCy - (diameter / 2f),
-                    cellCx + (diameter / 2f),
-                    markerCy + (diameter / 2f)),
+                MarkerRect = markerRect,
+                RangeRect = new SKRect(
+                    markerRect.Left - ((markerRect.Left - rect.Left) * joinLeft),
+                    markerRect.Top,
+                    markerRect.Right + ((rect.Right - markerRect.Right) * joinRight),
+                    markerRect.Bottom),
+                RangeRadiusLeft = radius * (1f - joinLeft),
+                RangeRadiusRight = radius * (1f - joinRight),
                 Initial = culture.DateTimeFormat.GetShortestDayName(day.DayOfWeek).ToUpper(culture),
                 Number = day.Day.ToString(culture),
             });
@@ -2135,6 +2184,12 @@ public sealed class InfiniteScheduleView : ContentView
             });
         }
 
+        // Two-day mode names the window once, above the rail: the day it settles on, so the label swaps
+        // at the swipe's midpoint like the strip's marker rather than sliding away with its column.
+        var railDay = RailDateActive
+            ? AnchorDay.Date.AddDays(InfiniteScheduleGeometry.DominantDay(horizontalOffset, dayWidth))
+            : (DateTime?)null;
+
         var ctx = new InfiniteScheduleHeaderContext
         {
             Theme = ActiveTheme,
@@ -2144,6 +2199,9 @@ public sealed class InfiniteScheduleView : ContentView
             Persons = persons,
             PersonColumnWidth = dayWidth / personCount,
             Days = days,
+            RailDay = railDay,
+            RailDayIsToday = railDay == todayDate,
+            WeekStripAbove = WeekStripActive,
         };
 
         skCanvas.Save();
@@ -2600,8 +2658,9 @@ public sealed class InfiniteScheduleView : ContentView
         }
     }
 
-    // Flick paging: advance exactly one chunk (a screenful = ViewMode days) from the gesture's start
-    // day, in the flick direction, then ease onto that day. Repeated flicks step chunk by chunk.
+    // Flick paging: advance exactly one chunk (PageStepDays — a screenful, or a single day in two-day
+    // mode) from the gesture's start day, in the flick direction, then ease onto that day. Repeated
+    // flicks step chunk by chunk.
     private void StartChunkFlick()
     {
         float snapWidth = dayWidth;
@@ -2615,7 +2674,7 @@ public sealed class InfiniteScheduleView : ContentView
             panStartHorizontal,
             horizontalOffset,
             snapWidth,
-            ViewMode,
+            PageStepDays,
             forward: velocityX < 0);
         BeginSettle(ClampHorizontal(target));
     }

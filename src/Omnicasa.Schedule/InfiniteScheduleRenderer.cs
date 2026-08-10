@@ -110,20 +110,11 @@ public readonly struct InfiniteScheduleHeaderContext
     public IReadOnlyList<InfiniteScheduleHeaderDay> Days { get; init; }
 
     /// <summary>
-    /// Day to name above the hour rail, pinned to the viewport — the leading day of the two-day mode's
-    /// band header. Null in every other mode, and the day cells then carry their own labels; when it is
-    /// set they stay bare, because this cell (and the strip above it) already names the window.
+    /// True when the week strip above already names the visible days (two-day mode under the strip):
+    /// the day cells then stay bare rather than repeating the weekday and number, and the band carries
+    /// person initials alone — the host gives it no height at all when there are no persons.
     /// </summary>
-    public DateTime? RailDay { get; init; }
-
-    /// <summary>True when <see cref="RailDay"/> is today.</summary>
-    public bool RailDayIsToday { get; init; }
-
-    /// <summary>
-    /// True when the weekday strip sits above this band. The strip already names the day, so the
-    /// default rail cell shows the month instead of repeating the weekday and number.
-    /// </summary>
-    public bool WeekStripAbove { get; init; }
+    public bool DaysNamedAbove { get; init; }
 }
 
 /// <summary>
@@ -410,12 +401,8 @@ public class InfiniteScheduleRenderer
         float headerHeight = ctx.HeaderHeight;
         float columnWidth = ctx.PersonColumnWidth;
 
-        // Two-day mode names the window once, above the rail — the day cells then only carry persons.
-        bool railNamesTheDay = ctx.RailDay is not null;
-        if (railNamesTheDay)
-        {
-            DrawHeaderRailDate(canvas, ctx);
-        }
+        // Under the strip the days are already named up there — the cells then only carry persons.
+        bool namedAbove = ctx.DaysNamedAbove;
 
         // Keep day cells out of the blank corner (the first partially-scrolled day can reach left of the rail).
         canvas.Save();
@@ -432,7 +419,7 @@ public class InfiniteScheduleRenderer
 
             if (persons is null)
             {
-                if (railNamesTheDay)
+                if (namedAbove)
                 {
                     continue;
                 }
@@ -443,7 +430,7 @@ public class InfiniteScheduleRenderer
                 continue;
             }
 
-            if (!railNamesTheDay)
+            if (!namedAbove)
             {
                 textPaint.Color = isToday ? ToSk(theme.Today) : ToSk(theme.Muted);
                 canvas.DrawText($"{dayShort} {dayNum}", dayCx, primarySize + 3, SKTextAlign.Center, primaryFont, textPaint);
@@ -472,64 +459,6 @@ public class InfiniteScheduleRenderer
         }
 
         canvas.Restore();
-    }
-
-    /// <summary>
-    /// Draws the day sitting above the hour rail in the two-day band header — the month when the week
-    /// strip is above (it already spells out the weekday and number), else weekday over day number.
-    /// Only called when <see cref="InfiniteScheduleHeaderContext.RailDay"/> is set.
-    /// </summary>
-    /// <param name="canvas">Target GPU canvas (drawing in logical units).</param>
-    /// <param name="ctx">The header band context.</param>
-    protected virtual void DrawHeaderRailDate(SKCanvas canvas, InfiniteScheduleHeaderContext ctx)
-    {
-        if (ctx.RailDay is not DateTime day)
-        {
-            return;
-        }
-
-        var theme = ctx.Theme;
-        var area = new SKRect(0, 0, ctx.RailWidth, ctx.HeaderHeight);
-        float primarySize = (float)theme.HeaderPrimaryFontSize;
-        float secondarySize = (float)theme.HeaderSecondaryFontSize;
-
-        using var paint = new SKPaint { Color = ToSk(ctx.RailDayIsToday ? theme.Today : theme.Muted), IsAntialias = true };
-
-        if (ctx.WeekStripAbove)
-        {
-            using var monthFont = new SKFont(RegularTypeface, primarySize);
-            canvas.DrawText(
-                day.ToString("MMM", CultureInfo.CurrentCulture).ToUpperInvariant(),
-                area.MidX,
-                area.MidY + (primarySize * 0.36f),
-                SKTextAlign.Center,
-                monthFont,
-                paint);
-            return;
-        }
-
-        // Stack the two lines about the cell's middle, the same way the one-day date cell does.
-        float block = primarySize + 4 + secondarySize;
-        float top = area.MidY - (block / 2f);
-
-        using var weekdayFont = new SKFont(RegularTypeface, primarySize);
-        canvas.DrawText(
-            day.ToString("ddd", CultureInfo.CurrentCulture).ToUpperInvariant(),
-            area.MidX,
-            top + primarySize,
-            SKTextAlign.Center,
-            weekdayFont,
-            paint);
-
-        paint.Color = ToSk(ctx.RailDayIsToday ? theme.Today : theme.Foreground);
-        using var numberFont = new SKFont(BoldTypeface, secondarySize);
-        canvas.DrawText(
-            day.Day.ToString(CultureInfo.CurrentCulture),
-            area.MidX,
-            top + block,
-            SKTextAlign.Center,
-            numberFont,
-            paint);
     }
 
     /// <summary>

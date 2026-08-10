@@ -698,8 +698,8 @@ public sealed class InfiniteScheduleView : ContentView
     /// rest of the band to the day's all-day bars — or, when the day has none, to the summary line from
     /// <see cref="DaySummaryFormatter"/>. Off falls back to the day-column header used by the multi-day
     /// modes. Restyle it by overriding <c>InfiniteScheduleRenderer.DrawSingleDayHeader</c>.
-    /// <para>In two-day mode under the week strip, it moves the month above the rail and leaves the two
-    /// day columns to their all-day bars and persons, since the strip already names both days.</para>
+    /// <para>In two-day mode under the week strip, it drops the column dates — the strip already names
+    /// both days — leaving a band that carries person initials alone, and no band at all without persons.</para>
     /// </summary>
     public bool SingleDayHeader
     {
@@ -921,7 +921,11 @@ public sealed class InfiniteScheduleView : ContentView
 
     private float RailWidth => (float)ActiveTheme.TimeRailWidth;
 
-    private float HeaderHeight => (float)ActiveTheme.HeaderHeight;
+    // The band names the days and carries person initials. Under the strip the days are already named
+    // up there, so with no persons it has nothing left to draw — give it no height rather than a blank row.
+    private float HeaderHeight => DaysNamedInStrip && Persons is not { Count: > 0 }
+        ? 0f
+        : (float)ActiveTheme.HeaderHeight;
 
     // Two-day mode: a one-day view that shows two columns. It keeps the one-day header treatments and
     // still moves a single day per swipe (12 → 23), so the pair always overlaps the one before it.
@@ -947,9 +951,9 @@ public sealed class InfiniteScheduleView : ContentView
     // (possibly half-scrolled) leftmost one.
     private bool SingleDayHeaderActive => SingleDayHeader && ViewMode == 1;
 
-    // Two-day mode names its window above the rail instead of labelling each column, but only under the
-    // strip — in Band mode the columns carry their own dates, which is the whole of that mode.
-    private bool RailDateActive => SingleDayHeader && TwoDayMode && WeekStripActive;
+    // Two-day mode leaves its columns unlabelled, the strip above having named both days — but only under
+    // the strip: in Band mode the columns carry their own dates, which is the whole of that mode.
+    private bool DaysNamedInStrip => SingleDayHeader && TwoDayMode && WeekStripActive;
 
     private int HeaderDayIndex => SingleDayHeaderActive || TwoDayMode
         ? InfiniteScheduleGeometry.DominantDay(horizontalOffset, dayWidth)
@@ -1337,7 +1341,11 @@ public sealed class InfiniteScheduleView : ContentView
             // Bars are laid out from the first visible day, so they need their own origin, not the strip's.
             float allDayTx = railWidth - (float)horizontalOffset + (allDayFirstDay * dayWidth);
             DrawAllDayBand(skCanvas, railWidth, headerHeight, logicalW, allDayTx);
-            DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
+
+            if (headerHeight > 0)
+            {
+                DrawHeaderBand(skCanvas, railWidth, headerHeight, logicalW, bodyWidth);
+            }
         }
 
         skCanvas.Restore();
@@ -2184,12 +2192,6 @@ public sealed class InfiniteScheduleView : ContentView
             });
         }
 
-        // Two-day mode names the window once, above the rail: the day it settles on, so the label swaps
-        // at the swipe's midpoint like the strip's marker rather than sliding away with its column.
-        var railDay = RailDateActive
-            ? AnchorDay.Date.AddDays(InfiniteScheduleGeometry.DominantDay(horizontalOffset, dayWidth))
-            : (DateTime?)null;
-
         var ctx = new InfiniteScheduleHeaderContext
         {
             Theme = ActiveTheme,
@@ -2199,9 +2201,7 @@ public sealed class InfiniteScheduleView : ContentView
             Persons = persons,
             PersonColumnWidth = dayWidth / personCount,
             Days = days,
-            RailDay = railDay,
-            RailDayIsToday = railDay == todayDate,
-            WeekStripAbove = WeekStripActive,
+            DaysNamedAbove = DaysNamedInStrip,
         };
 
         skCanvas.Save();

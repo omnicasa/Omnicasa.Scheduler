@@ -233,15 +233,16 @@ window slides `12 → 23 → 34`, so each swipe keeps the day you were just look
 │  M   T   W   T   F   S   S               │  ← solid circle on the leading day,
 │  2  ((3) 4)  5   6   7   8               │    lighter capsule across the pair
 ├──────────┬─────────────────┬─────────────┤
-│   AUG    │  [ Holiday ...................│  ← all-day bars, spanning their own columns
+│          │  [ Holiday ...................│  ← all-day bars, spanning their own columns
 ├──────────┼─────────────────┼─────────────┤
 │   09     │                 │             │
 ```
 
-Under the week strip the header names the window once, above the hour rail (the strip already spells
-out both days), and the columns carry only their all-day bars and person initials — override
-`InfiniteScheduleRenderer.DrawHeaderRailDate` to restyle that cell, or `DrawHeader` for the whole band.
-In `Band` mode the two columns keep their own dates, exactly as the wider modes draw them.
+Under the week strip the strip alone names the days, so the header band drops its column dates
+(`DaysNamedAbove` in the context) and keeps only the person initials — and with no `Persons` it takes
+no height at all, putting the all-day bars straight under the strip. Override
+`InfiniteScheduleRenderer.DrawHeader` to put something back in it. In `Band` mode the two columns keep
+their own dates, exactly as the wider modes draw them.
 
 The strip marks the pair in two layers: the solid circle stays on the **leading day** exactly as it does
 in one-day mode (`Emphasis`), and a **lighter capsule** washes the window under it (`RangeEmphasis` —

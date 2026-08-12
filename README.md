@@ -442,6 +442,18 @@ member below matches `MonthCalendarView` / `YearCalendarView`:
 | `DayTapped` event | — | Fires with a `DateOnly` when a day cell is tapped. |
 | `ScrollToMonth(year, month, animated)` (month) / `ScrollToYear(year, animated)` (year) | — | Programmatically scroll. |
 
+Scroll feel is tunable too — the same knobs on both views (they used to be private constants):
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `FlingGain` | `1.8` | Flick launch multiplier; higher = faster, further scrolling. Min `0`. |
+| `FlingDecelerationTime` | `0.5` | Momentum glide time (s); higher = longer glide. Clamped `[0.05, 5]`. |
+| `MaxFlingSpeed` | `12000` | Cap on fling speed (logical px/s) for very fast flicks. |
+| `FlingStopSpeed` | `30` | Speed (logical px/s) under which the fling counts as stopped and the snap to the whole month/year takes over. Raise it to cut the slow tail. Clamped `[1, 1000]`. |
+| `SettleTime` | `0.09` | Time constant (s) of the spring that settles onto a whole month/year; a settle takes roughly 6× this, so lower is snappier. Clamped `[0.02, 1.0]`. |
+| `PanLockThreshold` | `10` | Finger travel (logical px) before a drag commits to scrolling instead of staying a tap. |
+| `VelocitySmoothing` | `0.5` | Weight the release-velocity EMA gives the newest gesture sample; `1` uses the last sample alone. Clamped `[0.05, 1]`. |
+
 A two-finger gesture (these views have no zoom) freezes scrolling and settles to the nearest block on
 release, so a pinch never jitters the view.
 

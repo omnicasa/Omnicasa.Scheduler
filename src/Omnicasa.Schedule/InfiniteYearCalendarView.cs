@@ -20,20 +20,68 @@ namespace Omnicasa.Schedule;
 /// </summary>
 public sealed class InfiniteYearCalendarView : ContentView
 {
-    // Momentum tunables mirror InfiniteScheduleView's defaults so the fling feel matches the schedule.
-    private const double FlingGain = 1.8;
+    /// <summary>Bindable property for <see cref="FlingGain"/>.</summary>
+    public static readonly BindableProperty FlingGainProperty =
+        BindableProperty.Create(
+            nameof(FlingGain),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            1.8,
+            coerceValue: (_, v) => Math.Max(0.0, (double)v));
 
-    private const double FlingDecelerationTime = 0.5;
+    /// <summary>Bindable property for <see cref="FlingDecelerationTime"/>.</summary>
+    public static readonly BindableProperty FlingDecelerationTimeProperty =
+        BindableProperty.Create(
+            nameof(FlingDecelerationTime),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            0.5,
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.05, 5.0));
 
-    private const double MaxFlingSpeed = 12000;
+    /// <summary>Bindable property for <see cref="MaxFlingSpeed"/>.</summary>
+    public static readonly BindableProperty MaxFlingSpeedProperty =
+        BindableProperty.Create(
+            nameof(MaxFlingSpeed),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            12000.0,
+            coerceValue: (_, v) => Math.Max(0.0, (double)v));
 
-    private const double FlingStopSpeed = 30;
+    /// <summary>Bindable property for <see cref="FlingStopSpeed"/>.</summary>
+    public static readonly BindableProperty FlingStopSpeedProperty =
+        BindableProperty.Create(
+            nameof(FlingStopSpeed),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            30.0,
+            coerceValue: (_, v) => Math.Clamp((double)v, 1.0, 1000.0));
 
-    private const double SettleTau = 0.09;
+    /// <summary>Bindable property for <see cref="SettleTime"/>.</summary>
+    public static readonly BindableProperty SettleTimeProperty =
+        BindableProperty.Create(
+            nameof(SettleTime),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            0.09,
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.02, 1.0));
 
-    private const double PanLockThreshold = 10;
+    /// <summary>Bindable property for <see cref="PanLockThreshold"/>.</summary>
+    public static readonly BindableProperty PanLockThresholdProperty =
+        BindableProperty.Create(
+            nameof(PanLockThreshold),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            10.0,
+            coerceValue: (_, v) => Math.Max(0.0, (double)v));
 
-    private const double VelocitySmoothing = 0.5;
+    /// <summary>Bindable property for <see cref="VelocitySmoothing"/>.</summary>
+    public static readonly BindableProperty VelocitySmoothingProperty =
+        BindableProperty.Create(
+            nameof(VelocitySmoothing),
+            typeof(double),
+            typeof(InfiniteYearCalendarView),
+            0.5,
+            coerceValue: (_, v) => Math.Clamp((double)v, 0.05, 1.0));
 
     /// <summary>Bindable property for <see cref="Theme"/>.</summary>
     public static readonly BindableProperty ThemeProperty =
@@ -197,6 +245,66 @@ public sealed class InfiniteYearCalendarView : ContentView
     {
         get => (InfiniteMonthRenderer)GetValue(RendererProperty) ?? InfiniteMonthRenderer.Default;
         set => SetValue(RendererProperty, value);
+    }
+
+    // Momentum tunables; the defaults mirror InfiniteScheduleView so the fling feel matches the schedule.
+
+    /// <summary>Gets or sets the flick launch multiplier; higher = faster, further scrolling (default 1.8, min 0).</summary>
+    public double FlingGain
+    {
+        get => (double)GetValue(FlingGainProperty);
+        set => SetValue(FlingGainProperty, value);
+    }
+
+    /// <summary>Gets or sets the momentum glide time in seconds; higher = longer glide (default 0.5, clamped [0.05, 5]).</summary>
+    public double FlingDecelerationTime
+    {
+        get => (double)GetValue(FlingDecelerationTimeProperty);
+        set => SetValue(FlingDecelerationTimeProperty, value);
+    }
+
+    /// <summary>Gets or sets the upper bound on fling speed in logical px/s; caps very fast flicks (default 12000).</summary>
+    public double MaxFlingSpeed
+    {
+        get => (double)GetValue(MaxFlingSpeedProperty);
+        set => SetValue(MaxFlingSpeedProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the speed (logical px/s) below which a fling is treated as stopped and the snap to
+    /// the nearest year takes over (default 30, clamped [1, 1000]). Raise it to cut the long slow tail.
+    /// </summary>
+    public double FlingStopSpeed
+    {
+        get => (double)GetValue(FlingStopSpeedProperty);
+        set => SetValue(FlingStopSpeedProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the time constant (s) of the spring that settles onto a whole year (default 0.09,
+    /// clamped [0.02, 1.0]). A settle takes roughly 6× this, so lower is snappier.
+    /// </summary>
+    public double SettleTime
+    {
+        get => (double)GetValue(SettleTimeProperty);
+        set => SetValue(SettleTimeProperty, value);
+    }
+
+    /// <summary>Gets or sets the finger travel (logical px) before a drag commits to scrolling instead of a tap (default 10).</summary>
+    public double PanLockThreshold
+    {
+        get => (double)GetValue(PanLockThresholdProperty);
+        set => SetValue(PanLockThresholdProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets the weight the release-velocity EMA gives the newest gesture sample (default 0.5,
+    /// clamped [0.05, 1]). 1 uses the last sample alone; lower smooths a jittery flick harder.
+    /// </summary>
+    public double VelocitySmoothing
+    {
+        get => (double)GetValue(VelocitySmoothingProperty);
+        set => SetValue(VelocitySmoothingProperty, value);
     }
 
     private ScheduleTheme ActiveTheme => (ScheduleTheme)GetValue(ThemeProperty) ?? fallbackTheme;
@@ -684,7 +792,7 @@ public sealed class InfiniteYearCalendarView : ContentView
         }
         else
         {
-            double k = 1 - Math.Exp(-dt / SettleTau);
+            double k = 1 - Math.Exp(-dt / SettleTime);
             offsetY += (settleTarget - offsetY) * k;
             if (Math.Abs(settleTarget - offsetY) < 0.5)
             {

@@ -20,6 +20,9 @@ namespace Omnicasa.Schedule;
 /// </summary>
 public sealed class InfiniteYearCalendarView : ContentView
 {
+    /// <summary>Window (s) of gesture history the release-velocity fit uses; also the "finger came to rest" cutoff.</summary>
+    private const double VelocityHorizon = VelocityTracker.DefaultHorizonSeconds;
+
     /// <summary>Bindable property for <see cref="FlingGain"/>.</summary>
     public static readonly BindableProperty FlingGainProperty =
         BindableProperty.Create(
@@ -148,6 +151,11 @@ public sealed class InfiniteYearCalendarView : ContentView
 
     private readonly List<(DateOnly Date, SKRect Rect)> hitMap = new List<(DateOnly, SKRect)>();
 
+    // Release velocity comes from a least-squares fit over recent samples, not an EMA of per-sample
+    // deltas: touch samples arrive unevenly, and dividing one delta by a jittery dt turns identical
+    // gestures into wildly different flings.
+    private readonly VelocityTracker trackerY = new VelocityTracker();
+
     private readonly DayOfWeek firstDayOfWeek = CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
 
     private CancellationTokenSource? loadCts;
@@ -185,10 +193,6 @@ public sealed class InfiniteYearCalendarView : ContentView
     private double settleTarget;
 
     private double panStartOffset;
-
-    private double lastPanTotalY;
-
-    private double panSampleSeconds;
 
     private double lastFrameSeconds;
 
@@ -298,8 +302,9 @@ public sealed class InfiniteYearCalendarView : ContentView
     }
 
     /// <summary>
-    /// Gets or sets the weight the release-velocity EMA gives the newest gesture sample (default 0.5,
-    /// clamped [0.05, 1]). 1 uses the last sample alone; lower smooths a jittery flick harder.
+    /// Gets or sets the weight the release-velocity EMA gave the newest gesture sample. No longer
+    /// read: release velocity now comes from a least-squares fit (<see cref="VelocityTracker"/>),
+    /// which needs no smoothing knob. Kept so existing bindings still compile.
     /// </summary>
     public double VelocitySmoothing
     {
@@ -684,8 +689,8 @@ public sealed class InfiniteYearCalendarView : ContentView
         velocityY = 0;
         panning = true;
         panStartOffset = offsetY;
-        lastPanTotalY = 0;
-        panSampleSeconds = clock.Elapsed.TotalSeconds;
+        trackerY.Clear();
+        trackerY.Add(clock.Elapsed.TotalSeconds, 0);
     }
 
     private void OnTouchMoved(Point p)
@@ -696,6 +701,10 @@ public sealed class InfiniteYearCalendarView : ContentView
         }
 
         double totalY = p.Y - pressPoint.Y;
+
+        // Sample before the axis lock resolves: a fast flick can clear the threshold in one move, and
+        // the samples it discarded on the way are the ones that describe its speed.
+        trackerY.Add(clock.Elapsed.TotalSeconds, totalY);
 
         // Commit to a scroll once the finger clearly moves (below threshold stays a candidate tap).
         if (lockAxis == 0)
@@ -710,22 +719,17 @@ public sealed class InfiniteYearCalendarView : ContentView
             BeginRenderLoop();
         }
 
-        double now = clock.Elapsed.TotalSeconds;
-        double dt = Math.Max(now - panSampleSeconds, 1e-3);
-
-        // EMA keeps the flick's peak velocity (the last pre-lift sample is usually decelerating).
-        double instY = (totalY - lastPanTotalY) / dt;
-        velocityY = (velocityY * (1 - VelocitySmoothing)) + (instY * VelocitySmoothing);
         offsetY = ClampOffset(panStartOffset - totalY);
-
-        lastPanTotalY = totalY;
-        panSampleSeconds = now;
         Invalidate();
     }
 
     private void OnTouchReleased(bool cancelled)
     {
         panning = false;
+
+        // Fitted over the gesture's last VelocityHorizon of samples. The tracker returns zero once
+        // those have gone stale, so drag-hold-lift comes to rest instead of flinging on old momentum.
+        velocityY = trackerY.Velocity(clock.Elapsed.TotalSeconds, VelocityHorizon);
 
         if (lockAxis != 0)
         {

@@ -66,6 +66,9 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Cap (logical px/s) on the momentum a fling carries into the edge bounce, bounding the overshoot.</summary>
     private const double MaxBounceSpeed = 2000;
 
+    /// <summary>Furthest one vertical fling may glide, in bodies (viewport heights) of travel.</summary>
+    private const double MaxFlingTravelScreens = 1.5;
+
     /// <summary>Seconds the scroll indicator stays at full opacity after vertical motion stops.</summary>
     private const double IndicatorHoldTime = 0.45;
 
@@ -3012,6 +3015,7 @@ public sealed class InfiniteScheduleView : ContentView
         // Content moves opposite the finger; gain punches up the flick, then clamp the extremes.
         velocityX = Math.Clamp(-velocityX * FlingGain, -MaxFlingSpeed, MaxFlingSpeed);
         velocityY = Math.Clamp(-velocityY * FlingGain, -MaxFlingSpeed, MaxFlingSpeed);
+        velocityY = CapVerticalTravel(velocityY);
 
         // Released while still held past an edge: the spring takes over straight away, carrying
         // whatever momentum the finger had into it.
@@ -3021,6 +3025,22 @@ public sealed class InfiniteScheduleView : ContentView
         settling = false;
         lastFrameSeconds = clock.Elapsed.TotalSeconds;
         BeginRenderLoop();
+    }
+
+    // FlingGain and FlingDecelerationTime are tuned for the day axis, which is infinite. The time
+    // axis is not: a day is only a couple of screens tall, so the same launch glides past the whole
+    // of it in one flick and lands on the edge bounce (travel is velocity x FlingDecelerationTime).
+    // Cap the launch at MaxFlingTravelScreens bodies of travel so a flick stays inside the content.
+    private double CapVerticalTravel(double velocity)
+    {
+        double bodyHeight = Height - BodyTop;
+        if (bodyHeight <= 0 || FlingDecelerationTime <= 0)
+        {
+            return velocity;
+        }
+
+        double cap = (bodyHeight * MaxFlingTravelScreens) / FlingDecelerationTime;
+        return Math.Clamp(velocity, -cap, cap);
     }
 
     // Arms the edge spring when the body is resting outside its scroll range. Returns true when a

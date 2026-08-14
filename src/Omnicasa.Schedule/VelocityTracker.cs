@@ -52,6 +52,60 @@ public sealed class VelocityTracker
     }
 
     /// <summary>
+    /// Position at <paramref name="timeSeconds"/>, linearly interpolated between the two samples that
+    /// bracket it. Touch samples and rendered frames run on unrelated clocks, so a frame that reads the
+    /// newest sample consumes one sample's worth of travel on some frames and two on others — a finger
+    /// moving at constant speed still lands in visibly uneven steps. Reading a fixed lag behind the
+    /// newest sample instead hands every frame an equal slice, which is what makes the motion smooth.
+    /// </summary>
+    /// <param name="timeSeconds">Time to sample at, on the clock the samples were stamped with.</param>
+    /// <returns>
+    /// The interpolated position, or null when there is no history or the time asked for is newer than
+    /// the newest sample — callers sample into the past precisely so they never have to extrapolate.
+    /// </returns>
+    public double? PositionAt(double timeSeconds)
+    {
+        if (count == 0)
+        {
+            return null;
+        }
+
+        int newest = (head - 1 + Capacity) % Capacity;
+        if (timeSeconds > times[newest])
+        {
+            return null;
+        }
+
+        int oldest = (head - count + (Capacity * 2)) % Capacity;
+        if (timeSeconds <= times[oldest])
+        {
+            return positions[oldest];
+        }
+
+        // Walk back from the newest sample until one sits at or before the requested time.
+        for (int i = 0; i < count - 1; i++)
+        {
+            int later = (head - 1 - i + (Capacity * 2)) % Capacity;
+            int earlier = (head - 2 - i + (Capacity * 2)) % Capacity;
+            if (times[earlier] > timeSeconds)
+            {
+                continue;
+            }
+
+            double span = times[later] - times[earlier];
+            if (span <= 0)
+            {
+                return positions[later];
+            }
+
+            double fraction = (timeSeconds - times[earlier]) / span;
+            return positions[earlier] + ((positions[later] - positions[earlier]) * fraction);
+        }
+
+        return positions[oldest];
+    }
+
+    /// <summary>
     /// Velocity at the newest sample, in logical pixels per second. Zero when there is too little
     /// history to fit, or when the newest sample is already older than the horizon — a finger that
     /// came to rest before lifting carries no momentum, so that case must not fling.

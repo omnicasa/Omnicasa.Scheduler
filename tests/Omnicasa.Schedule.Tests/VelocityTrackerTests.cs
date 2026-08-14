@@ -180,4 +180,89 @@ public class VelocityTrackerTests
         double b = jittery.Velocity(0.1);
         Assert.True(Math.Abs(a - b) < 1.0, $"{a} vs {b}");
     }
+
+    [Fact]
+    public void PositionAt_NoHistory_IsNull()
+    {
+        Assert.Null(new VelocityTracker().PositionAt(0));
+    }
+
+    [Fact]
+    public void PositionAt_NewerThanNewestSample_IsNull()
+    {
+        var tracker = new VelocityTracker();
+        tracker.Add(0.0, 0);
+        tracker.Add(0.01, 10);
+
+        Assert.Null(tracker.PositionAt(0.011));
+    }
+
+    [Fact]
+    public void PositionAt_OlderThanOldestSample_ClampsToIt()
+    {
+        var tracker = new VelocityTracker();
+        tracker.Add(0.05, 500);
+        tracker.Add(0.06, 600);
+
+        Assert.Equal(500, tracker.PositionAt(0.0));
+    }
+
+    [Fact]
+    public void PositionAt_BetweenSamples_Interpolates()
+    {
+        var tracker = new VelocityTracker();
+        tracker.Add(0.00, 0);
+        tracker.Add(0.02, 200);
+
+        Assert.Equal(50, tracker.PositionAt(0.005)!.Value, 6);
+        Assert.Equal(150, tracker.PositionAt(0.015)!.Value, 6);
+    }
+
+    [Fact]
+    public void PositionAt_SurvivesRingBufferWraparound()
+    {
+        var tracker = new VelocityTracker();
+        for (int i = 0; i < 50; i++)
+        {
+            tracker.Add(i / 100.0, i * 10.0);
+        }
+
+        // Halfway between the samples at 0.47 and 0.48.
+        Assert.Equal(475, tracker.PositionAt(0.475)!.Value, 6);
+    }
+
+    // The reason PositionAt exists: irregular touch samples, read at uniform frame times, must yield
+    // uniform travel. Reading the newest sample each frame instead gives steps of 0 or 2x the average.
+    [Fact]
+    public void PositionAt_IrregularSamplesReadOnFrameClock_GivesEvenSteps()
+    {
+        const double speed = 1000.0; // logical px/s, constant
+        var tracker = new VelocityTracker();
+        double[] sampleTimes = { 0.000, 0.006, 0.019, 0.024, 0.028, 0.041, 0.047, 0.053, 0.066, 0.071 };
+        foreach (double t in sampleTimes)
+        {
+            tracker.Add(t, t * speed);
+        }
+
+        // Frames at 120 Hz, each reading 5 ms behind itself.
+        var steps = new List<double>();
+        double? previous = null;
+        for (double frame = 0.020; frame <= 0.070; frame += 1.0 / 120.0)
+        {
+            double current = tracker.PositionAt(frame - 0.005)!.Value;
+            if (previous is double p)
+            {
+                steps.Add(current - p);
+            }
+
+            previous = current;
+        }
+
+        double expected = speed / 120.0;
+        Assert.NotEmpty(steps);
+        foreach (double step in steps)
+        {
+            Assert.Equal(expected, step, 6);
+        }
+    }
 }

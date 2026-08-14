@@ -60,6 +60,13 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Window (s) of gesture history the release-velocity fit uses; also the "finger came to rest" cutoff.</summary>
     private const double VelocityHorizon = 0.1;
 
+    /// <summary>
+    /// How far back (s) a drag reads the finger, so each frame gets an equal slice of travel instead of
+    /// whatever the newest touch sample holds. Matches the lag Android's own input resampler uses; well
+    /// under one frame at 120 Hz, so it buys smoothness without reading as lag.
+    /// </summary>
+    private const double TouchResampleLag = 0.005;
+
     /// <summary>Time constant (s) of the spring that returns an overscrolled body to its edge.</summary>
     private const double BounceTime = 0.13;
 
@@ -1256,6 +1263,12 @@ public sealed class InfiniteScheduleView : ContentView
         if (flinging)
         {
             StepFling();
+        }
+
+        // A drag advances on the same frame clock, for the same reason.
+        if (panning)
+        {
+            ResamplePan();
         }
 
         // Draw in logical units; the GL surface is in pixels.
@@ -3058,6 +3071,32 @@ public sealed class InfiniteScheduleView : ContentView
         velocityY = Math.Clamp(velocityY, -MaxBounceSpeed, MaxBounceSpeed);
         bouncingY = true;
         return true;
+    }
+
+    // Places the dragged offset where the finger was TouchResampleLag ago, rather than wherever the
+    // newest touch sample happens to sit. Touch and vsync run on unrelated clocks, so reading the
+    // newest sample gives one frame a single sample of travel and the next frame two — constant finger
+    // speed, uneven steps on screen. Sampling a fixed lag back gives every frame an equal slice.
+    // OnTouchMoved still writes the raw position first, so a frame that outruns the samples (nothing
+    // to interpolate between) simply keeps the newest one instead of stalling.
+    private void ResamplePan()
+    {
+        if (interaction != InteractionKind.Scroll)
+        {
+            return;
+        }
+
+        double at = clock.Elapsed.TotalSeconds - TouchResampleLag;
+
+        if (lockAxis == 1 && trackerX.PositionAt(at) is double totalX)
+        {
+            horizontalOffset = ClampHorizontal(panStartHorizontal - totalX);
+        }
+        else if (lockAxis == 2 && trackerY.PositionAt(at) is double totalY)
+        {
+            scrollY = BandVertical(panStartVertical - totalY);
+            MarkVerticalMotion();
+        }
     }
 
     // Advances momentum once per rendered frame (driven from OnPaintSurface), so motion is

@@ -141,7 +141,7 @@ public sealed class InfiniteMonthCalendarView : ContentView
 
     private readonly ScheduleTheme fallbackTheme = new ScheduleTheme();
 
-    private readonly SKGLView canvas;
+    private readonly ScheduleCanvas canvas;
 
     private readonly Stopwatch clock = Stopwatch.StartNew();
 
@@ -199,7 +199,7 @@ public sealed class InfiniteMonthCalendarView : ContentView
     /// <summary>Initializes a new instance of the <see cref="InfiniteMonthCalendarView"/> class.</summary>
     public InfiniteMonthCalendarView()
     {
-        canvas = new SKGLView { HasRenderLoop = false, EnableTouchEvents = true };
+        canvas = new ScheduleCanvas { HasRenderLoop = false, EnableTouchEvents = true };
         canvas.PaintSurface += OnPaintSurface;
         canvas.Touch += OnTouch;
         Content = canvas;
@@ -416,7 +416,7 @@ public sealed class InfiniteMonthCalendarView : ContentView
 
     private void Invalidate() => canvas.InvalidateSurface();
 
-    private void OnPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
+    private void OnPaintSurface(object? sender, SchedulePaintArgs e)
     {
         var skCanvas = e.Surface.Canvas;
         var theme = ActiveTheme;
@@ -434,7 +434,7 @@ public sealed class InfiniteMonthCalendarView : ContentView
             StepFling();
         }
 
-        float scale = e.BackendRenderTarget.Width / logicalW;
+        float scale = e.Info.Width / logicalW;
         touchScale = scale; // authoritative px→logical ratio for touch coords
         skCanvas.Scale(scale);
 

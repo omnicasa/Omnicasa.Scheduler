@@ -157,8 +157,9 @@ one **SkiaSharp `SKGLView`** and owns a virtual horizontal offset, so there's no
 native scroll rect to run out of. Rendering uses snapshot-and-translate (a buffer of day columns
 recorded once into an `SKPicture`, re-recorded only near the buffer edge), keeping per-frame cost flat.
 
-> Requires **SkiaSharp.Views.Maui 3.x** (2.88 has no iOS `SKGLView` handler). Register it with
-> `.UseSkiaSharp()` in `MauiProgram`. iOS-simulator GL can be unreliable — test on a device.
+> Requires **SkiaSharp.Views.Maui 3.x**. Register it with `.UseSkiaSharp()` in `MauiProgram`.
+> On iOS the infinite views draw on the CPU (`SKCanvasView` + a `CADisplayLink` render loop):
+> `SKGLView`'s GL context setup crashed natively on first draw (MOBILE-12544). Android keeps `SKGLView`.
 
 Owning the canvas means owning the scrolling, so the vertical axis reimplements what a native
 `ScrollView` gives `ScheduleView` for free: **rubber-band overscroll** with a spring back to the edge

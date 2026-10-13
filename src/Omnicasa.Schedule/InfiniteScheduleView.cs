@@ -578,6 +578,7 @@ public sealed class InfiniteScheduleView : ContentView
     public InfiniteScheduleView()
     {
         canvas = new SKGLView { HasRenderLoop = false, EnableTouchEvents = true };
+        GLDrawGuard.Attach(canvas);
         canvas.PaintSurface += OnPaintSurface;
 
         // One unified touch stream drives scroll, fling, tap/long-press, and block drags — no MAUI

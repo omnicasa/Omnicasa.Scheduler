@@ -200,6 +200,7 @@ public sealed class InfiniteMonthCalendarView : ContentView
     public InfiniteMonthCalendarView()
     {
         canvas = new SKGLView { HasRenderLoop = false, EnableTouchEvents = true };
+        GLDrawGuard.Attach(canvas);
         canvas.PaintSurface += OnPaintSurface;
         canvas.Touch += OnTouch;
         Content = canvas;

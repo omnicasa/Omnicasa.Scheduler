@@ -392,7 +392,7 @@ public sealed class InfiniteScheduleView : ContentView
 
     private readonly ScheduleViewTheme fallbackTheme = new ScheduleViewTheme();
 
-    private readonly SKGLView canvas;
+    private readonly ScheduleCanvas canvas;
 
     private readonly Stopwatch clock = Stopwatch.StartNew();
 
@@ -577,7 +577,7 @@ public sealed class InfiniteScheduleView : ContentView
     /// <summary>Initializes a new instance of the <see cref="InfiniteScheduleView"/> class.</summary>
     public InfiniteScheduleView()
     {
-        canvas = new SKGLView { HasRenderLoop = false, EnableTouchEvents = true };
+        canvas = new ScheduleCanvas { HasRenderLoop = false, EnableTouchEvents = true };
         canvas.PaintSurface += OnPaintSurface;
 
         // One unified touch stream drives scroll, fling, tap/long-press, and block drags — no MAUI
@@ -1247,7 +1247,7 @@ public sealed class InfiniteScheduleView : ContentView
     private int? DayIndex(DateTime? day)
         => day is DateTime d ? (int)(d.Date - AnchorDay.Date).TotalDays : (int?)null;
 
-    private void OnPaintSurface(object? sender, SKPaintGLSurfaceEventArgs e)
+    private void OnPaintSurface(object? sender, SchedulePaintArgs e)
     {
         var skCanvas = e.Surface.Canvas;
 
@@ -1272,7 +1272,7 @@ public sealed class InfiniteScheduleView : ContentView
         }
 
         // Draw in logical units; the GL surface is in pixels.
-        float scale = e.BackendRenderTarget.Width / logicalW;
+        float scale = e.Info.Width / logicalW;
         touchScale = scale; // authoritative px→logical ratio for touch coords
         skCanvas.Scale(scale);
 

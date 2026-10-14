@@ -2375,8 +2375,7 @@ public sealed class InfiniteScheduleView : ContentView
 #if IOS
     private bool DropLostTouches(long id, Point p)
     {
-        int live = NativeTouchCount();
-        if (live <= 0 || touches.Count <= live)
+        if (!InfiniteScheduleGeometry.HasLostTouches(touches.Count, NativeTouchCount()))
         {
             return false;
         }

@@ -169,4 +169,13 @@ public static class InfiniteScheduleGeometry
 
         return horizontalOffset;
     }
+
+    /// <summary>
+    /// Whether the view holds touches the platform no longer tracks — a system gesture took them
+    /// without sending an up/cancel. MOBILE-12753.
+    /// </summary>
+    /// <param name="trackedTouches">Touches the view still has down.</param>
+    /// <param name="liveTouches">Touches the native recognizer reports; zero or less when unknown.</param>
+    public static bool HasLostTouches(int trackedTouches, int liveTouches)
+        => liveTouches > 0 && trackedTouches > liveTouches;
 }

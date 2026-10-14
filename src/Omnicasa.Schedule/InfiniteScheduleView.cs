@@ -2325,6 +2325,13 @@ public sealed class InfiniteScheduleView : ContentView
                 break;
 
             case SKTouchAction.Moved:
+#if IOS
+                if (DropLostTouches(e.Id, p))
+                {
+                    break;
+                }
+#endif
+
                 if (touches.ContainsKey(e.Id))
                 {
                     touches[e.Id] = p;
@@ -2361,6 +2368,44 @@ public sealed class InfiniteScheduleView : ContentView
                 break;
         }
     }
+
+    // A system gesture (e.g. the iOS edge swipe-back) can steal a touch without ever sending its
+    // up/cancel. The ghost turns every later drag into a pinch, and a pinch that never sees all
+    // fingers lift never ends, freezing the canvas. Returns true when it restarted the gesture.
+#if IOS
+    private bool DropLostTouches(long id, Point p)
+    {
+        if (!InfiniteScheduleGeometry.HasLostTouches(touches.Count, NativeTouchCount()))
+        {
+            return false;
+        }
+
+        if (inPinch)
+        {
+            EndPinch();
+        }
+
+        ResetTouchState();
+
+        // Restart from this finger as if it had just gone down.
+        touches[id] = p;
+        OnTouchPressed(p);
+        return true;
+    }
+
+    private UIKit.UIGestureRecognizer? touchRecognizer;
+
+    // Touches SkiaSharp's own recognizer is actually tracking, or -1 when it can't be found.
+    private int NativeTouchCount()
+    {
+        if (touchRecognizer?.View is null && canvas.Handler?.PlatformView is UIKit.UIView view)
+        {
+            touchRecognizer = view.GestureRecognizers is { } all ? Array.Find(all, r => r.GetType().Name == "SKTouchHandler") : null;
+        }
+
+        return touchRecognizer?.View is null ? -1 : (int)touchRecognizer.NumberOfTouches;
+    }
+#endif
 
     // Pinch zooms the time axis (HourHeight), keeping the time under the pinch center fixed.
     private void BeginPinch()

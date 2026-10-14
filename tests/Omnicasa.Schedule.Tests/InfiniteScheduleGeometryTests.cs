@@ -300,4 +300,30 @@ public class InfiniteScheduleGeometryTests
     {
         Assert.Equal(0, InfiniteScheduleGeometry.DominantDay(500, 0));
     }
+
+    [Theory]
+    [InlineData(2, 1)] // ghost from an edge swipe + one real finger: the stuck-pinch case
+    [InlineData(3, 2)] // ghost + a real pinch
+    [InlineData(4, 1)] // several lost touches
+    public void HasLostTouches_MoreTrackedThanLive_IsTrue(int tracked, int live)
+    {
+        Assert.True(InfiniteScheduleGeometry.HasLostTouches(tracked, live));
+    }
+
+    [Theory]
+    [InlineData(1, 1)] // normal one-finger drag
+    [InlineData(2, 2)] // real pinch
+    [InlineData(1, 2)] // second finger already down natively, its Pressed not delivered yet
+    public void HasLostTouches_TrackedWithinLive_IsFalse(int tracked, int live)
+    {
+        Assert.False(InfiniteScheduleGeometry.HasLostTouches(tracked, live));
+    }
+
+    [Theory]
+    [InlineData(2, 0)]
+    [InlineData(2, -1)] // native recognizer not found
+    public void HasLostTouches_UnknownLiveCount_NeverDrops(int tracked, int live)
+    {
+        Assert.False(InfiniteScheduleGeometry.HasLostTouches(tracked, live));
+    }
 }

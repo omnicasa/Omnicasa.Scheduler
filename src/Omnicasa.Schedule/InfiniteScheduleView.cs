@@ -396,20 +396,18 @@ public sealed class InfiniteScheduleView : ContentView
 
     private readonly Stopwatch clock = Stopwatch.StartNew();
 
+    // MOBILE-12756 hit maps are built in paint (GL thread on Android) and published whole for touch.
     // Item hit rectangles in strip-local content coordinates, rebuilt with the strip.
-    private readonly List<(IScheduleItem Item, SKRect Rect)> hitMap = new List<(IScheduleItem, SKRect)>();
+    private readonly SnapshotList<(IScheduleItem Item, SKRect Rect)> hitMap = new SnapshotList<(IScheduleItem, SKRect)>();
 
     // All-day bar hit rectangles in view coordinates; the panel is painted live, not into the strip.
-    private readonly List<(IScheduleItem Item, SKRect Rect)> allDayHitMap = new List<(IScheduleItem, SKRect)>();
+    private readonly SnapshotList<(IScheduleItem Item, SKRect Rect)> allDayHitMap = new SnapshotList<(IScheduleItem, SKRect)>();
 
     // Week strip cells in view coordinates, rebuilt each paint, so a tap can jump to the day.
-    private readonly List<(int DayIndex, SKRect Rect)> weekStripHitMap = new List<(int, SKRect)>();
+    private readonly SnapshotList<(int DayIndex, SKRect Rect)> weekStripHitMap = new SnapshotList<(int, SKRect)>();
 
     // Active touch points by id, so two-finger pinch-to-zoom can be tracked.
     private readonly Dictionary<long, Point> touches = new Dictionary<long, Point>();
-
-    // Items indexed by the day(s) they touch, so a strip re-record only scans the visible window.
-    private readonly Dictionary<DateOnly, List<IScheduleItem>> itemsByDay = new Dictionary<DateOnly, List<IScheduleItem>>();
 
     // One-day header only: the day pages currently in flight (see EnsureSingleDayPages).
     private readonly List<SingleDayPage> singleDayPages = new List<SingleDayPage>(SingleDayPageCount);
@@ -421,6 +419,10 @@ public sealed class InfiniteScheduleView : ContentView
     private readonly VelocityTracker trackerY = new VelocityTracker();
 
     private List<IScheduleItem> items = new List<IScheduleItem>();
+
+    // Items indexed by the day(s) they touch, so a strip re-record only scans the visible window.
+    // MOBILE-12756 swapped whole on data change, never mutated, since paint reads it on the GL thread.
+    private volatile Dictionary<DateOnly, List<IScheduleItem>> itemsByDay = new Dictionary<DateOnly, List<IScheduleItem>>();
 
     private Func<ScheduleDaySummary, string>? daySummaryFormatter;
 
@@ -1005,7 +1007,7 @@ public sealed class InfiniteScheduleView : ContentView
         float localX = viewPoint.X - RailWidth + (float)horizontalOffset - (stripStartDay * dayWidth);
         float localY = viewPoint.Y - BodyTop + (float)scrollY;
 
-        foreach (var (item, rect) in hitMap)
+        foreach (var (item, rect) in hitMap.Snapshot)
         {
             if (rect.Contains(localX, localY))
             {
@@ -1214,24 +1216,7 @@ public sealed class InfiniteScheduleView : ContentView
     }
 
     // Buckets each item under every day it overlaps, so RecordStrip only touches the visible window.
-    private void RebuildItemIndex()
-    {
-        itemsByDay.Clear();
-        foreach (var item in items)
-        {
-            for (var d = item.Start.Date; d <= item.End.Date; d = d.AddDays(1))
-            {
-                var key = DateOnly.FromDateTime(d);
-                if (!itemsByDay.TryGetValue(key, out var list))
-                {
-                    list = new List<IScheduleItem>();
-                    itemsByDay[key] = list;
-                }
-
-                list.Add(item);
-            }
-        }
-    }
+    private void RebuildItemIndex() => itemsByDay = ScheduleItemIndex.Build(items);
 
     private void OnLayoutChanged()
     {
@@ -1366,6 +1351,7 @@ public sealed class InfiniteScheduleView : ContentView
 
         skCanvas.Restore();
         ShiftAllDayHitMap(headerTop);
+        allDayHitMap.Publish();
 
         if (WeekStripActive)
         {
@@ -1373,8 +1359,10 @@ public sealed class InfiniteScheduleView : ContentView
         }
         else
         {
-            weekStripHitMap.Clear();
+            weekStripHitMap.Reset();
         }
+
+        weekStripHitMap.Publish();
 
         // The pop-in and the indicator fade run on the render loop; drop back to on-demand painting
         // once they (and any scroll/fling/pinch) are done, so the block always settles at full size.
@@ -1470,7 +1458,7 @@ public sealed class InfiniteScheduleView : ContentView
         float contentHeight = timeScale.TotalHeight;
         stripHourHeight = timeScale.HourHeight;
 
-        hitMap.Clear();
+        hitMap.Reset();
 
         using var recorder = new SKPictureRecorder();
         var rc = recorder.BeginRecording(new SKRect(0, 0, stripWidth, contentHeight));
@@ -1483,6 +1471,7 @@ public sealed class InfiniteScheduleView : ContentView
 
         strip?.Dispose();
         strip = recorder.EndRecording();
+        hitMap.Publish();
     }
 
     // Lays the all-day bars out over the *visible* days only, so the panel costs no height on days
@@ -1669,7 +1658,7 @@ public sealed class InfiniteScheduleView : ContentView
     // so it can pin to the viewport's top while the body scrolls vertically underneath it.
     private void DrawAllDayBand(SKCanvas skCanvas, float railWidth, float top, float logicalW, float tx)
     {
-        allDayHitMap.Clear();
+        allDayHitMap.Reset();
         if (allDayHeight <= 0)
         {
             return;
@@ -1716,7 +1705,7 @@ public sealed class InfiniteScheduleView : ContentView
                 Item = bar.Item,
             });
 
-            allDayHitMap.Add((bar.Item, rect));
+            allDayHitMap.Pending.Add((bar.Item, rect));
         }
 
         skCanvas.Restore();
@@ -1736,10 +1725,11 @@ public sealed class InfiniteScheduleView : ContentView
             return;
         }
 
-        for (int i = 0; i < allDayHitMap.Count; i++)
+        var pending = allDayHitMap.Pending;
+        for (int i = 0; i < pending.Count; i++)
         {
-            var (item, rect) = allDayHitMap[i];
-            allDayHitMap[i] = (item, new SKRect(rect.Left, rect.Top + dy, rect.Right, rect.Bottom + dy));
+            var (item, rect) = pending[i];
+            pending[i] = (item, new SKRect(rect.Left, rect.Top + dy, rect.Right, rect.Bottom + dy));
         }
     }
 
@@ -1753,7 +1743,7 @@ public sealed class InfiniteScheduleView : ContentView
     // The week itself only changes when the day you land on belongs to another one.
     private void DrawWeekStripBand(SKCanvas skCanvas, float logicalW)
     {
-        weekStripHitMap.Clear();
+        weekStripHitMap.Reset();
 
         float height = WeekStripHeight;
         if (height <= 0 || logicalW <= 0 || dayWidth <= 0)
@@ -1839,7 +1829,7 @@ public sealed class InfiniteScheduleView : ContentView
 
             if (enabled)
             {
-                weekStripHitMap.Add((dayIndex, rect));
+                weekStripHitMap.Pending.Add((dayIndex, rect));
             }
         }
 
@@ -1900,7 +1890,7 @@ public sealed class InfiniteScheduleView : ContentView
     // swipe the whole band travels and the next day slides in.
     private void DrawSingleDayHeaderBand(SKCanvas skCanvas, float railWidth, float headerHeight, float logicalW)
     {
-        allDayHitMap.Clear();
+        allDayHitMap.Reset();
 
         float band = headerHeight + allDayHeight;
         skCanvas.Save();
@@ -1966,7 +1956,7 @@ public sealed class InfiniteScheduleView : ContentView
                     Item = bar.Item,
                 });
 
-                allDayHitMap.Add((bar.Item, rect));
+                allDayHitMap.Pending.Add((bar.Item, rect));
             }
         }
 
@@ -2059,7 +2049,7 @@ public sealed class InfiniteScheduleView : ContentView
             float rh = MathF.Max(y2 - y1, 20);
             var rect = new SKRect(x, y1, x + rw, y1 + rh);
 
-            hitMap.Add((item, rect));
+            hitMap.Pending.Add((item, rect));
 
             renderer.DrawAppointment(rc, new InfiniteScheduleBlock
             {
@@ -2827,7 +2817,7 @@ public sealed class InfiniteScheduleView : ContentView
 
     private int? HitTestWeekStrip(Point p)
     {
-        foreach (var (dayIndex, rect) in weekStripHitMap)
+        foreach (var (dayIndex, rect) in weekStripHitMap.Snapshot)
         {
             if (rect.Contains((float)p.X, (float)p.Y))
             {
@@ -3389,7 +3379,7 @@ public sealed class InfiniteScheduleView : ContentView
 
     private bool HitsAllDayBar(Point p)
     {
-        foreach (var (_, rect) in allDayHitMap)
+        foreach (var (_, rect) in allDayHitMap.Snapshot)
         {
             if (rect.Contains((float)p.X, (float)p.Y))
             {
@@ -3404,7 +3394,7 @@ public sealed class InfiniteScheduleView : ContentView
     private void DispatchTap(Point screen, bool longPress)
     {
         // The all-day panel is painted in view space, so test it against the raw point.
-        foreach (var (item, rect) in allDayHitMap)
+        foreach (var (item, rect) in allDayHitMap.Snapshot)
         {
             if (rect.Contains((float)screen.X, (float)screen.Y))
             {
@@ -3422,7 +3412,7 @@ public sealed class InfiniteScheduleView : ContentView
             return;
         }
 
-        foreach (var (item, rect) in hitMap)
+        foreach (var (item, rect) in hitMap.Snapshot)
         {
             if (rect.Contains(localX, localY))
             {
